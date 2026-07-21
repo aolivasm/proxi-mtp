@@ -5,7 +5,12 @@ test_that("the default Nyström rank grows sublinearly with fold size", {
   expect_gt(rule(600L), rule(100L))
   expect_lt(rule(600L), 600L)
   expect_equal(rule(600L), 143L)
+  expect_true(pmtp_control()$cache_kernel_features)
   expect_error(pmtp_nystrom_rank(exponent = 1), "strictly between")
+  expect_error(
+    pmtp_control(cache_kernel_features = 1),
+    "TRUE or FALSE"
+  )
   expect_error(
     pmtp_control_fixed(
       kernel_approximation = "nystrom", nystrom_rank = 0
@@ -229,14 +234,23 @@ test_that("weighted Nyström fits are invariant to common weight rescaling", {
   expect_equal(vcov(scaled), vcov(original), tolerance = 1e-10)
 })
 
-test_that("low-rank Nyström runs through nested weighted tuning", {
+test_that("cached and uncached Nyström tuning are numerically identical", {
   data <- make_test_data(n = 40L, seed = 125L)
   control <- minimal_control(seed = 59L)
   control$kernel_approximation <- "nystrom"
   control$nystrom_rank <- 7L
-  control$nystrom_landmarks <- "uniform"
+  control$nystrom_landmarks <- "weighted"
+  control$cache_kernel_features <- TRUE
 
-  fit <- suppressWarnings(pmtp(
+  cached <- suppressWarnings(pmtp(
+    data,
+    policy = list(identity = function(a) a),
+    weights = "sampling_weight",
+    population_size = sum(data$sampling_weight),
+    control = control
+  ))
+  control$cache_kernel_features <- FALSE
+  uncached <- suppressWarnings(pmtp(
     data,
     policy = list(identity = function(a) a),
     weights = "sampling_weight",
@@ -244,12 +258,38 @@ test_that("low-rank Nyström runs through nested weighted tuning", {
     control = control
   ))
 
-  expect_true(all(is.finite(coef(fit))))
-  expect_true(all(vapply(fit$tuning, function(fold) {
+  expect_true(all(is.finite(coef(cached))))
+  expect_true(all(vapply(cached$tuning, function(fold) {
     all(is.finite(fold$outcome$results$mean_risk))
   }, logical(1))))
   expect_equal(
-    fit$tuning[[1L]]$outcome$final$approximation$outer$requested_rank,
+    cached$tuning[[1L]]$outcome$final$approximation$outer$requested_rank,
     7L
   )
+  expect_equal(coef(cached), coef(uncached), tolerance = 1e-12)
+  expect_equal(cached$nuisance, uncached$nuisance, tolerance = 1e-12)
+  expect_equal(vcov(cached), vcov(uncached), tolerance = 1e-12)
+  expect_identical(cached$outer_fold, uncached$outer_fold)
+  for (fold in seq_along(cached$tuning)) {
+    expect_equal(
+      cached$tuning[[fold]]$outcome$results,
+      uncached$tuning[[fold]]$outcome$results,
+      tolerance = 1e-12
+    )
+    expect_equal(
+      cached$tuning[[fold]]$outcome$selected,
+      uncached$tuning[[fold]]$outcome$selected,
+      tolerance = 1e-12
+    )
+    expect_equal(
+      cached$tuning[[fold]]$treatment[[1L]]$results,
+      uncached$tuning[[fold]]$treatment[[1L]]$results,
+      tolerance = 1e-12
+    )
+    expect_equal(
+      cached$tuning[[fold]]$treatment[[1L]]$selected,
+      uncached$tuning[[fold]]$treatment[[1L]]$selected,
+      tolerance = 1e-12
+    )
+  }
 })

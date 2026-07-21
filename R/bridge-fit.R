@@ -86,12 +86,12 @@ nystrom_map_summary <- function(object) {
 
 fit_outcome_bridge_nystrom <- function(
     h, gp, y, weights, lambda_h, lambda_gp,
-    sigma2_h, sigma2_gp, max_norm, control) {
+    sigma2_h, sigma2_gp, max_norm, control, feature_maps = NULL) {
   n_population <- sum(weights)
-  h_map <- fit_nystrom_map(
+  h_map <- feature_maps$outer %||% fit_nystrom_map(
     h, sigma2_h, weights, control, seed_offset = 101L
   )
-  gp_map <- fit_nystrom_map(
+  gp_map <- feature_maps$inner %||% fit_nystrom_map(
     gp, sigma2_gp, weights, control, seed_offset = 102L
   )
   phi_h <- h_map$training_features
@@ -140,17 +140,19 @@ fit_outcome_bridge_nystrom <- function(
 
 fit_treatment_bridge_nystrom <- function(
     g, hp, hp_q, weights, target, policy_support,
-    lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control) {
+    lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control,
+    feature_maps = NULL) {
   n_population <- sum(weights)
-  g_map <- fit_nystrom_map(
+  g_map <- feature_maps$outer %||% fit_nystrom_map(
     g, sigma2_g, weights, control, seed_offset = 201L
   )
-  hp_map <- fit_nystrom_map(
+  hp_map <- feature_maps$inner %||% fit_nystrom_map(
     hp, sigma2_hp, weights, control, seed_offset = 202L
   )
   phi_g <- g_map$training_features
   phi_hp <- hp_map$training_features
-  phi_hp_q <- predict_nystrom_features(hp_map, hp_q)
+  phi_hp_q <- feature_maps$policy_inner_features %||%
+    predict_nystrom_features(hp_map, hp_q)
   weighted_support <- weights * policy_support
 
   q_inner <- crossprod(
@@ -196,11 +198,12 @@ fit_treatment_bridge_nystrom <- function(
 }
 
 fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
-                               sigma2_h, sigma2_gp, max_norm, control) {
+                               sigma2_h, sigma2_gp, max_norm, control,
+                               feature_maps = NULL) {
   if (identical(control$kernel_approximation, "nystrom")) {
     return(fit_outcome_bridge_nystrom(
       h, gp, y, weights, lambda_h, lambda_gp,
-      sigma2_h, sigma2_gp, max_norm, control
+      sigma2_h, sigma2_gp, max_norm, control, feature_maps
     ))
   }
   n_population <- sum(weights)
@@ -245,11 +248,12 @@ fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
 
 fit_treatment_bridge <- function(g, hp, hp_q, weights, target, policy_support,
                                  lambda_g, lambda_hp, sigma2_g, sigma2_hp,
-                                 max_norm, control) {
+                                 max_norm, control, feature_maps = NULL) {
   if (identical(control$kernel_approximation, "nystrom")) {
     return(fit_treatment_bridge_nystrom(
       g, hp, hp_q, weights, target, policy_support,
-      lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control
+      lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control,
+      feature_maps
     ))
   }
   n_population <- sum(weights)
@@ -329,10 +333,11 @@ predict_treatment_bridge <- function(object, new_arguments) {
 }
 
 outcome_validation_risk <- function(residual, adversary_arguments, weights,
-                                    sigma2, lambda, control) {
+                                    sigma2, lambda, control,
+                                    feature_map = NULL) {
   n_population <- sum(weights)
   if (identical(control$kernel_approximation, "nystrom")) {
-    feature_map <- fit_nystrom_map(
+    feature_map <- feature_map %||% fit_nystrom_map(
       adversary_arguments, sigma2, weights, control, seed_offset = 301L
     )
     features <- feature_map$training_features
@@ -361,14 +366,15 @@ outcome_validation_risk <- function(residual, adversary_arguments, weights,
 treatment_validation_risk <- function(g_value, adversary_arguments,
                                       adversary_policy_arguments, weights,
                                       target, policy_support, sigma2, lambda,
-                                      control) {
+                                      control, feature_map = NULL,
+                                      policy_features = NULL) {
   n_population <- sum(weights)
   if (identical(control$kernel_approximation, "nystrom")) {
-    feature_map <- fit_nystrom_map(
+    feature_map <- feature_map %||% fit_nystrom_map(
       adversary_arguments, sigma2, weights, control, seed_offset = 302L
     )
     features <- feature_map$training_features
-    policy_features <- predict_nystrom_features(
+    policy_features <- policy_features %||% predict_nystrom_features(
       feature_map, adversary_policy_arguments
     )
     weighted_support <- weights * policy_support

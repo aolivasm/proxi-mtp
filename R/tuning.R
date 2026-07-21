@@ -16,6 +16,20 @@ tuning_grid_g <- function(control) {
   )
 }
 
+use_nystrom_feature_cache <- function(control) {
+  identical(control$kernel_approximation, "nystrom") &&
+    isTRUE(control$cache_kernel_features)
+}
+
+cache_nystrom_maps <- function(arguments, sigma2, weights, control,
+                               seed_offset) {
+  lapply(sigma2, function(value) {
+    fit_nystrom_map(
+      arguments, value, weights, control, seed_offset = seed_offset
+    )
+  })
+}
+
 fixed_outcome_tuning <- function(control) {
   selected <- tuning_grid_h(control)
   selected$mean_risk <- NA_real_
@@ -187,9 +201,49 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
       dat$weight[validation]
     )
     risk_lambda <- control$risk_penalty * log(n_validation) / n_validation
+    feature_cache <- NULL
+    if (use_nystrom_feature_cache(control)) {
+      outer_scales <- unique(grid$outer_bandwidth_scale)
+      inner_scales <- unique(grid$inner_bandwidth_scale)
+      feature_cache <- list(
+        outer_scales = outer_scales,
+        inner_scales = inner_scales,
+        outer = cache_nystrom_maps(
+          prepared$train$h,
+          base_h * outer_scales,
+          dat$weight[training],
+          control,
+          seed_offset = 101L
+        ),
+        inner = cache_nystrom_maps(
+          prepared$train$g,
+          base_gp * inner_scales,
+          dat$weight[training],
+          control,
+          seed_offset = 102L
+        ),
+        risk = fit_nystrom_map(
+          prepared$validation$g,
+          risk_base * control$risk_bandwidth,
+          dat$weight[validation],
+          control,
+          seed_offset = 301L
+        )
+      )
+    }
 
     for (candidate in seq_len(nrow(grid))) {
       risks[candidate, risk_index] <- tryCatch({
+        candidate_maps <- if (is.null(feature_cache)) NULL else list(
+          outer = feature_cache$outer[[match(
+            grid$outer_bandwidth_scale[candidate],
+            feature_cache$outer_scales
+          )]],
+          inner = feature_cache$inner[[match(
+            grid$inner_bandwidth_scale[candidate],
+            feature_cache$inner_scales
+          )]]
+        )
         fit <- fit_outcome_bridge(
           h = prepared$train$h,
           gp = prepared$train$g,
@@ -204,7 +258,8 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
           sigma2_h = base_h * grid$outer_bandwidth_scale[candidate],
           sigma2_gp = base_gp * grid$inner_bandwidth_scale[candidate],
           max_norm = control$max_norm_h,
-          control = control
+          control = control,
+          feature_maps = candidate_maps
         )
         prediction <- predict_outcome_bridge(fit, prepared$validation$h)
         outcome_validation_risk(
@@ -213,7 +268,8 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
           weights = dat$weight[validation],
           sigma2 = risk_base * control$risk_bandwidth,
           lambda = risk_lambda,
-          control = control
+          control = control,
+          feature_map = feature_cache$risk %||% NULL
         )
       }, error = function(e) Inf)
     }
@@ -265,9 +321,62 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
       dat$weight[validation]
     )
     risk_lambda <- control$risk_penalty * log(n_validation) / n_validation
+    feature_cache <- NULL
+    if (use_nystrom_feature_cache(control)) {
+      outer_scales <- unique(grid$outer_bandwidth_scale)
+      inner_scales <- unique(grid$inner_bandwidth_scale)
+      inner_maps <- cache_nystrom_maps(
+        prepared$train$h,
+        base_hp * inner_scales,
+        dat$weight[training],
+        control,
+        seed_offset = 202L
+      )
+      risk_map <- fit_nystrom_map(
+        prepared$validation$h,
+        risk_base * control$risk_bandwidth,
+        dat$weight[validation],
+        control,
+        seed_offset = 302L
+      )
+      feature_cache <- list(
+        outer_scales = outer_scales,
+        inner_scales = inner_scales,
+        outer = cache_nystrom_maps(
+          prepared$train$g,
+          base_g * outer_scales,
+          dat$weight[training],
+          control,
+          seed_offset = 201L
+        ),
+        inner = inner_maps,
+        policy_inner_features = lapply(inner_maps, function(map) {
+          predict_nystrom_features(map, prepared$train$hq)
+        }),
+        risk = risk_map,
+        risk_policy_features = predict_nystrom_features(
+          risk_map, prepared$validation$hq
+        )
+      )
+    }
 
     for (candidate in seq_len(nrow(grid))) {
       risks[candidate, risk_index] <- tryCatch({
+        candidate_maps <- if (is.null(feature_cache)) NULL else {
+          inner_index <- match(
+            grid$inner_bandwidth_scale[candidate],
+            feature_cache$inner_scales
+          )
+          list(
+            outer = feature_cache$outer[[match(
+              grid$outer_bandwidth_scale[candidate],
+              feature_cache$outer_scales
+            )]],
+            inner = feature_cache$inner[[inner_index]],
+            policy_inner_features =
+              feature_cache$policy_inner_features[[inner_index]]
+          )
+        }
         fit <- fit_treatment_bridge(
           g = prepared$train$g,
           hp = prepared$train$h,
@@ -284,7 +393,8 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
           sigma2_g = base_g * grid$outer_bandwidth_scale[candidate],
           sigma2_hp = base_hp * grid$inner_bandwidth_scale[candidate],
           max_norm = control$max_norm_g,
-          control = control
+          control = control,
+          feature_maps = candidate_maps
         )
         prediction <- predict_treatment_bridge(fit, prepared$validation$g)
         treatment_validation_risk(
@@ -296,7 +406,9 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
           policy_support = dat$policy_support[[policy_index]][validation],
           sigma2 = risk_base * control$risk_bandwidth,
           lambda = risk_lambda,
-          control = control
+          control = control,
+          feature_map = feature_cache$risk %||% NULL,
+          policy_features = feature_cache$risk_policy_features %||% NULL
         )
       }, error = function(e) Inf)
     }

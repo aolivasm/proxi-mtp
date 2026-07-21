@@ -51,6 +51,10 @@
 #'   `2 * n^(2/3)`, subject to a minimum of 30 and the fold size.
 #' @param nystrom_landmarks Landmark sampling scheme. `"uniform"` samples rows
 #'   uniformly; `"weighted"` samples in proportion to the analysis weights.
+#' @param cache_kernel_features Logical; reuse fold-specific Nystrom feature
+#'   maps across tuning candidates with the same bandwidth. This changes only
+#'   computation, not landmarks, risks, or fitted estimators. It is ignored by
+#'   the exact backend.
 #'
 #' @return A list of class `pmtp_control`.
 #' @export
@@ -81,7 +85,8 @@ pmtp_control <- function(
     inner_repeats = 1L,
     kernel_approximation = c("exact", "nystrom"),
     nystrom_rank = pmtp_nystrom_rank(),
-    nystrom_landmarks = c("uniform", "weighted")) {
+    nystrom_landmarks = c("uniform", "weighted"),
+    cache_kernel_features = TRUE) {
   assert_flag(tune, "tune")
   selection_rule <- match.arg(selection_rule)
   kernel_approximation <- match.arg(kernel_approximation)
@@ -115,6 +120,7 @@ pmtp_control <- function(
   assert_positive(max_norm_g, "max_norm_g", allow_inf = TRUE)
   assert_flag(keep_cv, "keep_cv")
   assert_flag(progress, "progress")
+  assert_flag(cache_kernel_features, "cache_kernel_features")
   resolve_nystrom_rank(nystrom_rank, 10L)
 
   structure(list(
@@ -142,7 +148,8 @@ pmtp_control <- function(
     progress = progress,
     kernel_approximation = kernel_approximation,
     nystrom_rank = nystrom_rank,
-    nystrom_landmarks = nystrom_landmarks
+    nystrom_landmarks = nystrom_landmarks,
+    cache_kernel_features = cache_kernel_features
   ), class = "pmtp_control")
 }
 
@@ -177,7 +184,8 @@ pmtp_control_fixed <- function(
     selection_rule = "minimum",
     kernel_approximation = c("exact", "nystrom"),
     nystrom_rank = pmtp_nystrom_rank(),
-    nystrom_landmarks = c("uniform", "weighted")) {
+    nystrom_landmarks = c("uniform", "weighted"),
+    cache_kernel_features = TRUE) {
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
   pmtp_control(
@@ -204,7 +212,8 @@ pmtp_control_fixed <- function(
     progress = progress,
     kernel_approximation = kernel_approximation,
     nystrom_rank = nystrom_rank,
-    nystrom_landmarks = nystrom_landmarks
+    nystrom_landmarks = nystrom_landmarks,
+    cache_kernel_features = cache_kernel_features
   )
 }
 
@@ -221,7 +230,8 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
                               inner_repeats = 1L,
                               kernel_approximation = c("exact", "nystrom"),
                               nystrom_rank = pmtp_nystrom_rank(),
-                              nystrom_landmarks = c("uniform", "weighted")) {
+                              nystrom_landmarks = c("uniform", "weighted"),
+                              cache_kernel_features = TRUE) {
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
   pmtp_control(
@@ -241,6 +251,7 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
     progress = progress,
     kernel_approximation = kernel_approximation,
     nystrom_rank = nystrom_rank,
-    nystrom_landmarks = nystrom_landmarks
+    nystrom_landmarks = nystrom_landmarks,
+    cache_kernel_features = cache_kernel_features
   )
 }

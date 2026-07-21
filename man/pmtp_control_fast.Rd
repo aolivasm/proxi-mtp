@@ -13,7 +13,8 @@ pmtp_control_fast(
   inner_repeats = 1L,
   kernel_approximation = c("exact", "nystrom"),
   nystrom_rank = pmtp_nystrom_rank(),
-  nystrom_landmarks = c("uniform", "weighted")
+  nystrom_landmarks = c("uniform", "weighted"),
+  cache_kernel_features = TRUE
 )
 }
 \arguments{
@@ -51,6 +52,11 @@ in the current fold. The default \code{\link[=pmtp_nystrom_rank]{pmtp_nystrom_ra
 
 \item{nystrom_landmarks}{Landmark sampling scheme. \code{"uniform"} samples rows
 uniformly; \code{"weighted"} samples in proportion to the analysis weights.}
+
+\item{cache_kernel_features}{Logical; reuse fold-specific Nystrom feature
+maps across tuning candidates with the same bandwidth. This changes only
+computation, not landmarks, risks, or fitted estimators. It is ignored by
+the exact backend.}
 }
 \value{
 A list of class \code{pmtp_control}.
