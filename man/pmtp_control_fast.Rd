@@ -8,7 +8,8 @@ pmtp_control_fast(
   outer_folds = 3L,
   inner_folds = 2L,
   seed = 1234L,
-  progress = FALSE
+  progress = FALSE,
+  selection_rule = "minimum"
 )
 }
 \arguments{
@@ -21,6 +22,15 @@ sample. Must be at least 2 when \code{tune = TRUE}; ignored otherwise.}
 the caller's random-number state.}
 
 \item{progress}{Logical; print fold progress.}
+
+\item{selection_rule}{Cross-validation selection rule. \code{"minimum"} selects
+the smallest mean validation risk. The experimental
+\code{"one_se_regularized"} rule forms a one-standard-error set using the
+foldwise risk standard error at the minimum, then prefers the largest
+outer bridge penalty and the largest external kernel bandwidth; remaining
+ties use the smallest mean risk. The experimental \code{"one_se_interior"}
+rule instead prefers the fewest boundary coordinates within the same
+one-standard-error set, then uses the smallest mean risk.}
 }
 \value{
 A list of class \code{pmtp_control}.

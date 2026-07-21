@@ -24,6 +24,14 @@
 #' @param risk_bandwidth Multiplier for validation-risk kernel variances. The
 #'   base bandwidth is recomputed on each validation fold.
 #' @param risk_penalty Scaling factor for `log(n) / n` in validation risks.
+#' @param selection_rule Cross-validation selection rule. `"minimum"` selects
+#'   the smallest mean validation risk. The experimental
+#'   `"one_se_regularized"` rule forms a one-standard-error set using the
+#'   foldwise risk standard error at the minimum, then prefers the largest
+#'   outer bridge penalty and the largest external kernel bandwidth; remaining
+#'   ties use the smallest mean risk. The experimental `"one_se_interior"`
+#'   rule instead prefers the fewest boundary coordinates within the same
+#'   one-standard-error set, then uses the smallest mean risk.
 #' @param max_norm_h,max_norm_g Optional RKHS norm bounds. Use `Inf` to disable.
 #' @param seed Random seed used for fold creation without permanently changing
 #'   the caller's random-number state.
@@ -54,8 +62,12 @@ pmtp_control <- function(
     jitter = 1e-8,
     max_solve_tries = 8L,
     keep_cv = TRUE,
-    progress = FALSE) {
+    progress = FALSE,
+    selection_rule = c(
+      "minimum", "one_se_regularized", "one_se_interior"
+    )) {
   assert_flag(tune, "tune")
+  selection_rule <- match.arg(selection_rule)
   if (outer_folds < 2L || (tune && inner_folds < 2L)) {
     stop("Outer folds must be at least 2, and inner folds must be at least 2 when tuning.",
          call. = FALSE)
@@ -96,6 +108,7 @@ pmtp_control <- function(
     bandwidth_hp = bandwidth_hp,
     risk_bandwidth = risk_bandwidth,
     risk_penalty = risk_penalty,
+    selection_rule = selection_rule,
     max_norm_h = max_norm_h,
     max_norm_g = max_norm_g,
     seed = as.integer(seed),
@@ -133,7 +146,8 @@ pmtp_control_fixed <- function(
     jitter = 1e-8,
     max_solve_tries = 8L,
     keep_cv = FALSE,
-    progress = FALSE) {
+    progress = FALSE,
+    selection_rule = "minimum") {
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = 1L,
@@ -148,6 +162,7 @@ pmtp_control_fixed <- function(
     bandwidth_hp = bandwidth_hp,
     risk_bandwidth = risk_bandwidth,
     risk_penalty = risk_penalty,
+    selection_rule = selection_rule,
     max_norm_h = max_norm_h,
     max_norm_g = max_norm_g,
     seed = seed,
@@ -166,7 +181,8 @@ pmtp_control_fixed <- function(
 #' @return A list of class `pmtp_control`.
 #' @export
 pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
-                              seed = 1234L, progress = FALSE) {
+                              seed = 1234L, progress = FALSE,
+                              selection_rule = "minimum") {
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = inner_folds,
@@ -178,6 +194,7 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
     bandwidth_gp = 1 / 4,
     bandwidth_g = c(1 / 2, 1),
     bandwidth_hp = 1 / 4,
+    selection_rule = selection_rule,
     seed = seed,
     progress = progress
   )

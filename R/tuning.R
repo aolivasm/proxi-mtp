@@ -46,7 +46,12 @@ summarize_cv_grid <- function(grid, risks) {
   out
 }
 
-select_cv_row <- function(results, grid, bridge_name) {
+select_cv_row <- function(results, grid, bridge_name,
+                          selection_rule = "minimum") {
+  selection_rule <- match.arg(
+    selection_rule,
+    c("minimum", "one_se_regularized", "one_se_interior")
+  )
   if (!any(is.finite(results$mean_risk))) {
     stop(
       "Every ", bridge_name, " bridge tuning configuration failed. ",
@@ -54,10 +59,59 @@ select_cv_row <- function(results, grid, bridge_name) {
       call. = FALSE
     )
   }
-  selected_index <- which.min(results$mean_risk)
+  minimum_index <- which.min(results$mean_risk)
+  fold_columns <- grep("^fold[0-9]+_risk$", names(results), value = TRUE)
+  minimum_fold_risks <- unlist(
+    results[minimum_index, fold_columns, drop = FALSE],
+    use.names = FALSE
+  )
+  minimum_fold_risks <- minimum_fold_risks[is.finite(minimum_fold_risks)]
+  minimum_risk_se <- if (length(minimum_fold_risks) > 1L) {
+    stats::sd(minimum_fold_risks) / sqrt(length(minimum_fold_risks))
+  } else {
+    0
+  }
+  one_se_threshold <- results$mean_risk[minimum_index] + minimum_risk_se
+  one_se_indices <- which(
+    is.finite(results$mean_risk) & results$mean_risk <= one_se_threshold
+  )
+  selected_index <- minimum_index
+  if (identical(selection_rule, "one_se_regularized")) {
+    largest_penalty <- max(grid$outer_lambda_scale[one_se_indices])
+    eligible <- one_se_indices[
+      grid$outer_lambda_scale[one_se_indices] == largest_penalty
+    ]
+    largest_bandwidth <- max(grid$outer_bandwidth_scale[eligible])
+    eligible <- eligible[
+      grid$outer_bandwidth_scale[eligible] == largest_bandwidth
+    ]
+    selected_index <- eligible[which.min(results$mean_risk[eligible])]
+  } else if (identical(selection_rule, "one_se_interior")) {
+    boundary_fields <- c(
+      "outer_lambda_scale", "inner_lambda_scale",
+      "outer_bandwidth_scale", "inner_bandwidth_scale"
+    )
+    boundary_count <- rowSums(vapply(boundary_fields, function(field) {
+      candidates <- sort(unique(grid[[field]]))
+      length(candidates) > 1L & grid[[field]] %in% range(candidates)
+    }, logical(nrow(grid))))
+    fewest_boundaries <- min(boundary_count[one_se_indices])
+    eligible <- one_se_indices[
+      boundary_count[one_se_indices] == fewest_boundaries
+    ]
+    selected_index <- eligible[which.min(results$mean_risk[eligible])]
+  }
   selected <- grid[selected_index, , drop = FALSE]
   selected$mean_risk <- results$mean_risk[selected_index]
   selected$grid_index <- selected_index
+  selected$selection_rule <- selection_rule
+  selected$minimum_mean_risk <- results$mean_risk[minimum_index]
+  selected$minimum_grid_index <- minimum_index
+  selected$minimum_risk_se <- minimum_risk_se
+  selected$one_se_threshold <- one_se_threshold
+  selected$one_se_candidate_count <- length(one_se_indices)
+  selected$selected_risk_gap <-
+    results$mean_risk[selected_index] - results$mean_risk[minimum_index]
   selected
 }
 
@@ -137,8 +191,14 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
   }
 
   results <- summarize_cv_grid(grid, risks)
-  selected <- select_cv_row(results, grid, "Outcome")
-  warn_grid_boundary(selected, grid, "Outcome bridge")
+  selected <- select_cv_row(
+    results, grid, "Outcome", control$selection_rule
+  )
+  warn_grid_boundary(
+    grid[selected$minimum_grid_index, , drop = FALSE],
+    grid,
+    "Outcome bridge risk minimum"
+  )
   list(selected = selected, results = results, fold_id = fold_id)
 }
 
@@ -202,8 +262,14 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
   }
 
   results <- summarize_cv_grid(grid, risks)
-  selected <- select_cv_row(results, grid, "Treatment")
-  warn_grid_boundary(selected, grid, "Treatment bridge")
+  selected <- select_cv_row(
+    results, grid, "Treatment", control$selection_rule
+  )
+  warn_grid_boundary(
+    grid[selected$minimum_grid_index, , drop = FALSE],
+    grid,
+    "Treatment bridge risk minimum"
+  )
   list(selected = selected, results = results, fold_id = fold_id)
 }
 

@@ -24,7 +24,8 @@ pmtp_control(
   jitter = 1e-08,
   max_solve_tries = 8L,
   keep_cv = TRUE,
-  progress = FALSE
+  progress = FALSE,
+  selection_rule = c("minimum", "one_se_regularized", "one_se_interior")
 )
 }
 \arguments{
@@ -68,6 +69,15 @@ the caller's random-number state.}
 \item{keep_cv}{Logical; retain candidate-level cross-validation results.}
 
 \item{progress}{Logical; print fold progress.}
+
+\item{selection_rule}{Cross-validation selection rule. \code{"minimum"} selects
+the smallest mean validation risk. The experimental
+\code{"one_se_regularized"} rule forms a one-standard-error set using the
+foldwise risk standard error at the minimum, then prefers the largest
+outer bridge penalty and the largest external kernel bandwidth; remaining
+ties use the smallest mean risk. The experimental \code{"one_se_interior"}
+rule instead prefers the fewest boundary coordinates within the same
+one-standard-error set, then uses the smallest mean risk.}
 }
 \value{
 A list of class \code{pmtp_control}.
