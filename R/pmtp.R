@@ -199,6 +199,9 @@ build_analysis_data <- function(data, treatment, outcome, covariates,
 #'
 #' When inverse two-phase sampling weights are supplied, the same weighted
 #' empirical minimax objectives are used for bridge fitting and validation. The
+#' regularization rates depend on the number of observed rows in each fold, not
+#' on the sum of inverse-probability weights. This keeps the nuisance fits
+#' invariant to a common rescaling of all weights. The
 #' final estimator is
 #' `sum(weights * phi) / sum(weights * target)`. Its variance uses squared
 #' inverse sampling weights, as required by the observed-data influence

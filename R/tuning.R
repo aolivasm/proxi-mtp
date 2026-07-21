@@ -91,8 +91,12 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
     training <- indices[fold_id != fold]
     validation <- indices[fold_id == fold]
     prepared <- prepare_fold_data(dat, training, validation)
-    n_training <- sum(dat$weight[training])
-    n_validation <- sum(dat$weight[validation])
+    # Penalty rates are governed by the number of observed phase-two rows,
+    # not by the Horvitz-Thompson estimate of the phase-one population size.
+    # The weighted empirical objectives themselves remain normalized by the
+    # sum of weights inside the bridge-fitting and risk functions.
+    n_training <- length(training)
+    n_validation <- length(validation)
     base_h <- median_bandwidth(prepared$train$h, dat$weight[training])
     base_gp <- median_bandwidth(prepared$train$g, dat$weight[training])
     risk_base <- median_bandwidth(
@@ -151,8 +155,8 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
     training <- indices[fold_id != fold]
     validation <- indices[fold_id == fold]
     prepared <- prepare_fold_data(dat, training, validation, policy_index)
-    n_training <- sum(dat$weight[training])
-    n_validation <- sum(dat$weight[validation])
+    n_training <- length(training)
+    n_validation <- length(validation)
     base_g <- median_bandwidth(prepared$train$g, dat$weight[training])
     base_hp <- median_bandwidth(prepared$train$h, dat$weight[training])
     risk_base <- median_bandwidth(
@@ -205,7 +209,7 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
 
 fit_selected_outcome <- function(dat, training, validation, tuning, control) {
   prepared <- prepare_fold_data(dat, training, validation)
-  n_training <- sum(dat$weight[training])
+  n_training <- length(training)
   base_h <- median_bandwidth(prepared$train$h, dat$weight[training])
   base_gp <- median_bandwidth(prepared$train$g, dat$weight[training])
   fit <- fit_outcome_bridge(
@@ -230,7 +234,7 @@ fit_selected_outcome <- function(dat, training, validation, tuning, control) {
 
 fit_selected_treatment <- function(dat, training, validation, policy_index,
                                    tuning, prepared, control) {
-  n_training <- sum(dat$weight[training])
+  n_training <- length(training)
   base_g <- median_bandwidth(prepared$train$g, dat$weight[training])
   base_hp <- median_bandwidth(prepared$train$h, dat$weight[training])
   fit <- fit_treatment_bridge(

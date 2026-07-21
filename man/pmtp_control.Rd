@@ -37,10 +37,13 @@ sample. Must be at least 2 when \code{tune = TRUE}; ignored otherwise.}
 tuning field must be scalar and those values are used directly.}
 
 \item{lambda_h, lambda_g}{Scaling factors for the outer RKHS penalties for the
-outcome and treatment bridges.}
+outcome and treatment bridges. The base rate is computed from the number
+of observed rows in the relevant fold, including under two-phase sampling;
+it is not computed from the sum of inverse-probability weights.}
 
 \item{lambda_gp, lambda_hp}{Scaling factors for the inner adversarial RKHS
-penalties for the outcome and treatment bridge objectives.}
+penalties for the outcome and treatment bridge objectives, using the same
+observed-fold sample-size convention.}
 
 \item{bandwidth_h, bandwidth_g}{Multipliers for the median-heuristic external
 kernel variances.}

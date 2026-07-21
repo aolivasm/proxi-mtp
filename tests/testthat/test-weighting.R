@@ -45,3 +45,29 @@ test_that("weighted target denominator and two-phase variance are coherent", {
   expect_equal(fit$asymptotic_variance[[1]], expected_tau2)
   expect_equal(fit$estimates$std_error[[1]], expected_se)
 })
+
+test_that("common rescaling of sampling weights leaves the fit unchanged", {
+  data <- make_test_data()
+  data$scaled_sampling_weight <- 11 * data$sampling_weight
+  policy <- list(identity = function(a) a)
+  control <- minimal_control(seed = 29L)
+
+  original <- pmtp(
+    data,
+    policy = policy,
+    weights = "sampling_weight",
+    population_size = sum(data$sampling_weight),
+    control = control
+  )
+  scaled <- pmtp(
+    data,
+    policy = policy,
+    weights = "scaled_sampling_weight",
+    population_size = sum(data$scaled_sampling_weight),
+    control = control
+  )
+
+  expect_equal(coef(scaled), coef(original), tolerance = 1e-10)
+  expect_equal(scaled$nuisance, original$nuisance, tolerance = 1e-10)
+  expect_equal(vcov(scaled), vcov(original), tolerance = 1e-10)
+})
