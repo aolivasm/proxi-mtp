@@ -363,9 +363,11 @@ pmtp <- function(
     tuning <- lapply(tuning, function(fold) {
       fold$outcome$results <- NULL
       fold$outcome$fold_id <- NULL
+      fold$outcome$risk_folds <- NULL
       fold$treatment <- lapply(fold$treatment, function(x) {
         x$results <- NULL
         x$fold_id <- NULL
+        x$risk_folds <- NULL
         x
       })
       fold

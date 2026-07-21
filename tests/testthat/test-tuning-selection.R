@@ -114,3 +114,55 @@ test_that("control validates selection rules", {
   )
   expect_error(pmtp_control(selection_rule = "unsupported"), "arg")
 })
+
+test_that("repeated inner CV retains every fold risk", {
+  data <- make_test_data(n = 40L)
+  control <- pmtp_control(
+    outer_folds = 2L,
+    inner_folds = 2L,
+    lambda_h = 1e-2,
+    lambda_gp = 1,
+    lambda_g = 1e-2,
+    lambda_hp = 1,
+    bandwidth_h = 1,
+    bandwidth_gp = 1 / 2,
+    bandwidth_g = 1,
+    bandwidth_hp = 1 / 2,
+    max_norm_h = Inf,
+    max_norm_g = Inf,
+    seed = 87L,
+    keep_cv = TRUE,
+    inner_repeats = 2L
+  )
+
+  fit <- pmtp(
+    data,
+    policy = list(identity = function(a) a),
+    control = control
+  )
+
+  for (outer_fold_index in seq_along(fit$tuning)) {
+    outer_fold <- fit$tuning[[outer_fold_index]]
+    expected_training_rows <- sum(fit$outer_fold != outer_fold_index)
+    components <- list(
+      outer_fold$outcome,
+      outer_fold$treatment[[1L]]
+    )
+    for (component in components) {
+      expect_equal(dim(component$fold_id), c(expected_training_rows, 2L))
+      expect_equal(nrow(component$risk_folds), 4L)
+      expect_equal(component$risk_folds$inner_repeat, c(1L, 1L, 2L, 2L))
+      expect_equal(component$risk_folds$inner_fold, c(1L, 2L, 1L, 2L))
+      expect_true(all(paste0("fold", 1:4, "_risk") %in%
+        names(component$results)))
+      expect_equal(component$results$finite_folds, 4L)
+    }
+  }
+})
+
+test_that("control validates inner repeat counts", {
+  expect_equal(pmtp_control()$inner_repeats, 1L)
+  expect_equal(pmtp_control(inner_repeats = 3L)$inner_repeats, 3L)
+  expect_error(pmtp_control(inner_repeats = 0L), "positive integer")
+  expect_error(pmtp_control(inner_repeats = 1.5), "positive integer")
+})

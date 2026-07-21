@@ -9,7 +9,8 @@ pmtp_control_fast(
   inner_folds = 2L,
   seed = 1234L,
   progress = FALSE,
-  selection_rule = "minimum"
+  selection_rule = "minimum",
+  inner_repeats = 1L
 )
 }
 \arguments{
@@ -31,6 +32,11 @@ outer bridge penalty and the largest external kernel bandwidth; remaining
 ties use the smallest mean risk. The experimental \code{"one_se_interior"}
 rule instead prefers the fewest boundary coordinates within the same
 one-standard-error set, then uses the smallest mean risk.}
+
+\item{inner_repeats}{Number of independently randomized inner-CV partitions.
+The default of one reproduces ordinary inner cross-validation. Values
+greater than one average validation risk over all repeat-by-fold
+evaluations while preserving the training fraction of \code{inner_folds}.}
 }
 \value{
 A list of class \code{pmtp_control}.

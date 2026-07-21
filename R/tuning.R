@@ -20,14 +20,20 @@ fixed_outcome_tuning <- function(control) {
   selected <- tuning_grid_h(control)
   selected$mean_risk <- NA_real_
   selected$grid_index <- NA_integer_
-  list(selected = selected, results = NULL, fold_id = NULL, fixed = TRUE)
+  list(
+    selected = selected, results = NULL, fold_id = NULL,
+    risk_folds = NULL, fixed = TRUE
+  )
 }
 
 fixed_treatment_tuning <- function(control) {
   selected <- tuning_grid_g(control)
   selected$mean_risk <- NA_real_
   selected$grid_index <- NA_integer_
-  list(selected = selected, results = NULL, fold_id = NULL, fixed = TRUE)
+  list(
+    selected = selected, results = NULL, fold_id = NULL,
+    risk_folds = NULL, fixed = TRUE
+  )
 }
 
 summarize_cv_grid <- function(grid, risks) {
@@ -44,6 +50,27 @@ summarize_cv_grid <- function(grid, risks) {
     out[[paste0("fold", j, "_risk")]] <- risks[, j]
   }
   out
+}
+
+make_repeated_inner_folds <- function(dat, indices, control, seed_offset) {
+  fold_id <- vapply(seq_len(control$inner_repeats), function(inner_repeat) {
+    make_folds(
+      dat$a[indices], dat$y[indices], control$inner_folds,
+      control$seed + seed_offset + 100000L * (inner_repeat - 1L)
+    )
+  }, integer(length(indices)))
+  if (is.null(dim(fold_id))) {
+    fold_id <- matrix(fold_id, ncol = 1L)
+  }
+  colnames(fold_id) <- paste0("repeat", seq_len(control$inner_repeats))
+  risk_folds <- expand.grid(
+    inner_fold = seq_len(control$inner_folds),
+    inner_repeat = seq_len(control$inner_repeats),
+    KEEP.OUT.ATTRS = FALSE,
+    stringsAsFactors = FALSE
+  )
+  risk_folds$risk_index <- seq_len(nrow(risk_folds))
+  list(fold_id = fold_id, risk_folds = risk_folds)
 }
 
 select_cv_row <- function(results, grid, bridge_name,
@@ -135,13 +162,15 @@ warn_grid_boundary <- function(selected, grid, bridge_name) {
 
 tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
   grid <- tuning_grid_h(control)
-  fold_id <- make_folds(
-    dat$a[indices], dat$y[indices], control$inner_folds,
-    control$seed + seed_offset
+  repeated_folds <- make_repeated_inner_folds(
+    dat, indices, control, seed_offset
   )
-  risks <- matrix(Inf, nrow(grid), control$inner_folds)
+  risks <- matrix(Inf, nrow(grid), nrow(repeated_folds$risk_folds))
 
-  for (fold in seq_len(control$inner_folds)) {
+  for (risk_index in seq_len(nrow(repeated_folds$risk_folds))) {
+    fold <- repeated_folds$risk_folds$inner_fold[risk_index]
+    inner_repeat <- repeated_folds$risk_folds$inner_repeat[risk_index]
+    fold_id <- repeated_folds$fold_id[, inner_repeat]
     training <- indices[fold_id != fold]
     validation <- indices[fold_id == fold]
     prepared <- prepare_fold_data(dat, training, validation)
@@ -160,7 +189,7 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
     risk_lambda <- control$risk_penalty * log(n_validation) / n_validation
 
     for (candidate in seq_len(nrow(grid))) {
-      risks[candidate, fold] <- tryCatch({
+      risks[candidate, risk_index] <- tryCatch({
         fit <- fit_outcome_bridge(
           h = prepared$train$h,
           gp = prepared$train$g,
@@ -199,19 +228,31 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
     grid,
     "Outcome bridge risk minimum"
   )
-  list(selected = selected, results = results, fold_id = fold_id)
+  stored_fold_id <- if (control$inner_repeats == 1L) {
+    repeated_folds$fold_id[, 1L]
+  } else {
+    repeated_folds$fold_id
+  }
+  list(
+    selected = selected,
+    results = results,
+    fold_id = stored_fold_id,
+    risk_folds = repeated_folds$risk_folds
+  )
 }
 
 tune_treatment_bridge <- function(dat, indices, policy_index, control,
                                   seed_offset = 0L) {
   grid <- tuning_grid_g(control)
-  fold_id <- make_folds(
-    dat$a[indices], dat$y[indices], control$inner_folds,
-    control$seed + seed_offset
+  repeated_folds <- make_repeated_inner_folds(
+    dat, indices, control, seed_offset
   )
-  risks <- matrix(Inf, nrow(grid), control$inner_folds)
+  risks <- matrix(Inf, nrow(grid), nrow(repeated_folds$risk_folds))
 
-  for (fold in seq_len(control$inner_folds)) {
+  for (risk_index in seq_len(nrow(repeated_folds$risk_folds))) {
+    fold <- repeated_folds$risk_folds$inner_fold[risk_index]
+    inner_repeat <- repeated_folds$risk_folds$inner_repeat[risk_index]
+    fold_id <- repeated_folds$fold_id[, inner_repeat]
     training <- indices[fold_id != fold]
     validation <- indices[fold_id == fold]
     prepared <- prepare_fold_data(dat, training, validation, policy_index)
@@ -226,7 +267,7 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
     risk_lambda <- control$risk_penalty * log(n_validation) / n_validation
 
     for (candidate in seq_len(nrow(grid))) {
-      risks[candidate, fold] <- tryCatch({
+      risks[candidate, risk_index] <- tryCatch({
         fit <- fit_treatment_bridge(
           g = prepared$train$g,
           hp = prepared$train$h,
@@ -270,7 +311,17 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
     grid,
     "Treatment bridge risk minimum"
   )
-  list(selected = selected, results = results, fold_id = fold_id)
+  stored_fold_id <- if (control$inner_repeats == 1L) {
+    repeated_folds$fold_id[, 1L]
+  } else {
+    repeated_folds$fold_id
+  }
+  list(
+    selected = selected,
+    results = results,
+    fold_id = stored_fold_id,
+    risk_folds = repeated_folds$risk_folds
+  )
 }
 
 fit_selected_outcome <- function(dat, training, validation, tuning, control) {

@@ -8,6 +8,10 @@
 #' @param outer_folds Number of outer cross-fitting folds. Must be at least 2.
 #' @param inner_folds Number of inner tuning folds within each outer-training
 #'   sample. Must be at least 2 when `tune = TRUE`; ignored otherwise.
+#' @param inner_repeats Number of independently randomized inner-CV partitions.
+#'   The default of one reproduces ordinary inner cross-validation. Values
+#'   greater than one average validation risk over all repeat-by-fold
+#'   evaluations while preserving the training fraction of `inner_folds`.
 #' @param tune Logical; perform inner cross-validation. When `FALSE`, every
 #'   tuning field must be scalar and those values are used directly.
 #' @param lambda_h,lambda_g Scaling factors for the outer RKHS penalties for the
@@ -65,9 +69,14 @@ pmtp_control <- function(
     progress = FALSE,
     selection_rule = c(
       "minimum", "one_se_regularized", "one_se_interior"
-    )) {
+    ),
+    inner_repeats = 1L) {
   assert_flag(tune, "tune")
   selection_rule <- match.arg(selection_rule)
+  if (length(inner_repeats) != 1L || is.na(inner_repeats) ||
+      inner_repeats < 1L || inner_repeats != as.integer(inner_repeats)) {
+    stop("`inner_repeats` must be a positive integer.", call. = FALSE)
+  }
   if (outer_folds < 2L || (tune && inner_folds < 2L)) {
     stop("Outer folds must be at least 2, and inner folds must be at least 2 when tuning.",
          call. = FALSE)
@@ -97,6 +106,7 @@ pmtp_control <- function(
   structure(list(
     outer_folds = as.integer(outer_folds),
     inner_folds = as.integer(inner_folds),
+    inner_repeats = as.integer(inner_repeats),
     tune = tune,
     lambda_h = lambda_h,
     lambda_gp = lambda_gp,
@@ -182,10 +192,12 @@ pmtp_control_fixed <- function(
 #' @export
 pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
                               seed = 1234L, progress = FALSE,
-                              selection_rule = "minimum") {
+                              selection_rule = "minimum",
+                              inner_repeats = 1L) {
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = inner_folds,
+    inner_repeats = inner_repeats,
     lambda_h = c(1e-3, 1e-2),
     lambda_gp = c(1, 10),
     lambda_g = c(1e-3, 1e-2),
