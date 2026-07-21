@@ -26,7 +26,10 @@ pmtp_control(
   keep_cv = TRUE,
   progress = FALSE,
   selection_rule = c("minimum", "one_se_regularized", "one_se_interior"),
-  inner_repeats = 1L
+  inner_repeats = 1L,
+  kernel_approximation = c("exact", "nystrom"),
+  nystrom_rank = pmtp_nystrom_rank(),
+  nystrom_landmarks = c("uniform", "weighted")
 )
 }
 \arguments{
@@ -84,6 +87,17 @@ one-standard-error set, then uses the smallest mean risk.}
 The default of one reproduces ordinary inner cross-validation. Values
 greater than one average validation risk over all repeat-by-fold
 evaluations while preserving the training fraction of \code{inner_folds}.}
+
+\item{kernel_approximation}{Kernel backend. \code{"exact"} uses the complete
+fold-specific Gram matrices. \code{"nystrom"} uses fold-specific Nystrom
+features for bridge fitting and validation risks.}
+
+\item{nystrom_rank}{Positive fixed rank or a function of the number of rows
+in the current fold. The default \code{\link[=pmtp_nystrom_rank]{pmtp_nystrom_rank()}} grows as
+\code{2 * n^(2/3)}, subject to a minimum of 30 and the fold size.}
+
+\item{nystrom_landmarks}{Landmark sampling scheme. \code{"uniform"} samples rows
+uniformly; \code{"weighted"} samples in proportion to the analysis weights.}
 }
 \value{
 A list of class \code{pmtp_control}.

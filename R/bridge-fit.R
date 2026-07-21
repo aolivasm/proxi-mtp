@@ -37,8 +37,172 @@ solve_with_norm_bound <- function(a, b, kernel, bound, control) {
   )
 }
 
+feature_norm <- function(coef) {
+  sqrt(sum(coef^2))
+}
+
+solve_feature_with_norm_bound <- function(a, b, bound, control) {
+  identity_matrix <- diag(nrow(a))
+  solve_at <- function(multiplier) {
+    safe_solve(
+      a + 4 * multiplier * identity_matrix,
+      b,
+      jitter = control$jitter,
+      max_tries = control$max_solve_tries
+    )
+  }
+  coef <- solve_at(0)
+  norm <- feature_norm(coef)
+  if (!is.finite(bound) || norm <= bound) {
+    return(list(coef = coef, norm = norm, constraint = 0))
+  }
+
+  objective <- function(multiplier) {
+    feature_norm(solve_at(multiplier)) - bound
+  }
+  upper <- 1
+  while (objective(upper) > 0 && upper < 1e12) {
+    upper <- upper * 10
+  }
+  if (upper >= 1e12 && objective(upper) > 0) {
+    stop("The RKHS norm constraint could not be bracketed.", call. = FALSE)
+  }
+  multiplier <- stats::uniroot(objective, c(0, upper), tol = 1e-8)$root
+  coef <- solve_at(multiplier)
+  list(
+    coef = coef,
+    norm = feature_norm(coef),
+    constraint = multiplier
+  )
+}
+
+nystrom_map_summary <- function(object) {
+  list(
+    observations = object$n_observations,
+    requested_rank = object$requested_rank,
+    effective_rank = object$effective_rank
+  )
+}
+
+fit_outcome_bridge_nystrom <- function(
+    h, gp, y, weights, lambda_h, lambda_gp,
+    sigma2_h, sigma2_gp, max_norm, control) {
+  n_population <- sum(weights)
+  h_map <- fit_nystrom_map(
+    h, sigma2_h, weights, control, seed_offset = 101L
+  )
+  gp_map <- fit_nystrom_map(
+    gp, sigma2_gp, weights, control, seed_offset = 102L
+  )
+  phi_h <- h_map$training_features
+  phi_gp <- gp_map$training_features
+
+  weighted_phi_gp <- sweep(phi_gp, 1L, weights, "*")
+  q_inner <- crossprod(phi_gp, weighted_phi_gp) / n_population +
+    lambda_gp * diag(ncol(phi_gp))
+  c_inner <- crossprod(phi_gp, sweep(phi_h, 1L, weights, "*")) /
+    n_population
+  d_inner <- drop(crossprod(phi_gp, weights * y) / n_population)
+  q_solution <- safe_solve(
+    q_inner,
+    cbind(c_inner, d_inner),
+    jitter = control$jitter,
+    max_tries = control$max_solve_tries
+  )
+  q_solve_c <- q_solution[, seq_len(ncol(c_inner)), drop = FALSE]
+  q_solve_d <- q_solution[, ncol(q_solution), drop = TRUE]
+
+  a <- crossprod(c_inner, q_solve_c) +
+    4 * lambda_h * diag(ncol(phi_h))
+  b <- drop(crossprod(c_inner, q_solve_d))
+  solution <- solve_feature_with_norm_bound(a, b, max_norm, control)
+  approximation <- list(
+    method = "nystrom",
+    outer = nystrom_map_summary(h_map),
+    inner = nystrom_map_summary(gp_map),
+    landmark_sampling = control$nystrom_landmarks
+  )
+  h_map$training_features <- NULL
+
+  structure(list(
+    coefficients = solution$coef,
+    feature_map = h_map,
+    kernel_approximation = "nystrom",
+    approximation = approximation,
+    sigma2 = sigma2_h,
+    norm = solution$norm,
+    constraint = solution$constraint,
+    lambda_outer = lambda_h,
+    lambda_inner = lambda_gp,
+    sigma2_inner = sigma2_gp
+  ), class = "pmtp_outcome_bridge")
+}
+
+fit_treatment_bridge_nystrom <- function(
+    g, hp, hp_q, weights, target, policy_support,
+    lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control) {
+  n_population <- sum(weights)
+  g_map <- fit_nystrom_map(
+    g, sigma2_g, weights, control, seed_offset = 201L
+  )
+  hp_map <- fit_nystrom_map(
+    hp, sigma2_hp, weights, control, seed_offset = 202L
+  )
+  phi_g <- g_map$training_features
+  phi_hp <- hp_map$training_features
+  phi_hp_q <- predict_nystrom_features(hp_map, hp_q)
+  weighted_support <- weights * policy_support
+
+  q_inner <- crossprod(
+    phi_hp, sweep(phi_hp, 1L, weighted_support, "*")
+  ) / n_population + lambda_hp * diag(ncol(phi_hp))
+  a_inner <- drop(crossprod(phi_hp_q, weights * target) / n_population)
+  b_inner <- crossprod(
+    phi_hp, sweep(phi_g, 1L, weighted_support, "*")
+  ) / n_population
+  q_solution <- safe_solve(
+    q_inner,
+    cbind(b_inner, a_inner),
+    jitter = control$jitter,
+    max_tries = control$max_solve_tries
+  )
+  q_solve_b <- q_solution[, seq_len(ncol(b_inner)), drop = FALSE]
+  q_solve_a <- q_solution[, ncol(q_solution), drop = TRUE]
+
+  a <- crossprod(b_inner, q_solve_b) +
+    4 * lambda_g * diag(ncol(phi_g))
+  b <- drop(crossprod(b_inner, q_solve_a))
+  solution <- solve_feature_with_norm_bound(a, b, max_norm, control)
+  approximation <- list(
+    method = "nystrom",
+    outer = nystrom_map_summary(g_map),
+    inner = nystrom_map_summary(hp_map),
+    landmark_sampling = control$nystrom_landmarks
+  )
+  g_map$training_features <- NULL
+
+  structure(list(
+    coefficients = solution$coef,
+    feature_map = g_map,
+    kernel_approximation = "nystrom",
+    approximation = approximation,
+    sigma2 = sigma2_g,
+    norm = solution$norm,
+    constraint = solution$constraint,
+    lambda_outer = lambda_g,
+    lambda_inner = lambda_hp,
+    sigma2_inner = sigma2_hp
+  ), class = "pmtp_treatment_bridge")
+}
+
 fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
                                sigma2_h, sigma2_gp, max_norm, control) {
+  if (identical(control$kernel_approximation, "nystrom")) {
+    return(fit_outcome_bridge_nystrom(
+      h, gp, y, weights, lambda_h, lambda_gp,
+      sigma2_h, sigma2_gp, max_norm, control
+    ))
+  }
   n_population <- sum(weights)
   k_h <- gaussian_kernel(h, sigma2 = sigma2_h)
   k_gp <- gaussian_kernel(gp, sigma2 = sigma2_gp)
@@ -62,6 +226,14 @@ fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
   structure(list(
     coefficients = solution$coef,
     training_arguments = h,
+    kernel_approximation = "exact",
+    approximation = list(
+      method = "exact",
+      outer = list(observations = nrow(h), requested_rank = nrow(h),
+                   effective_rank = nrow(h)),
+      inner = list(observations = nrow(gp), requested_rank = nrow(gp),
+                   effective_rank = nrow(gp))
+    ),
     sigma2 = sigma2_h,
     norm = solution$norm,
     constraint = solution$constraint,
@@ -74,6 +246,12 @@ fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
 fit_treatment_bridge <- function(g, hp, hp_q, weights, target, policy_support,
                                  lambda_g, lambda_hp, sigma2_g, sigma2_hp,
                                  max_norm, control) {
+  if (identical(control$kernel_approximation, "nystrom")) {
+    return(fit_treatment_bridge_nystrom(
+      g, hp, hp_q, weights, target, policy_support,
+      lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control
+    ))
+  }
   n_population <- sum(weights)
   k_g <- gaussian_kernel(g, sigma2 = sigma2_g)
   k_hp <- gaussian_kernel(hp, sigma2 = sigma2_hp)
@@ -105,6 +283,14 @@ fit_treatment_bridge <- function(g, hp, hp_q, weights, target, policy_support,
   structure(list(
     coefficients = solution$coef,
     training_arguments = g,
+    kernel_approximation = "exact",
+    approximation = list(
+      method = "exact",
+      outer = list(observations = nrow(g), requested_rank = nrow(g),
+                   effective_rank = nrow(g)),
+      inner = list(observations = nrow(hp), requested_rank = nrow(hp),
+                   effective_rank = nrow(hp))
+    ),
     sigma2 = sigma2_g,
     norm = solution$norm,
     constraint = solution$constraint,
@@ -115,6 +301,12 @@ fit_treatment_bridge <- function(g, hp, hp_q, weights, target, policy_support,
 }
 
 predict_outcome_bridge <- function(object, new_arguments) {
+  if (identical(object$kernel_approximation, "nystrom")) {
+    return(drop(
+      predict_nystrom_features(object$feature_map, new_arguments) %*%
+        object$coefficients
+    ))
+  }
   drop(gaussian_kernel(
     new_arguments,
     object$training_arguments,
@@ -123,6 +315,12 @@ predict_outcome_bridge <- function(object, new_arguments) {
 }
 
 predict_treatment_bridge <- function(object, new_arguments) {
+  if (identical(object$kernel_approximation, "nystrom")) {
+    return(drop(
+      predict_nystrom_features(object$feature_map, new_arguments) %*%
+        object$coefficients
+    ))
+  }
   drop(gaussian_kernel(
     new_arguments,
     object$training_arguments,
@@ -133,6 +331,21 @@ predict_treatment_bridge <- function(object, new_arguments) {
 outcome_validation_risk <- function(residual, adversary_arguments, weights,
                                     sigma2, lambda, control) {
   n_population <- sum(weights)
+  if (identical(control$kernel_approximation, "nystrom")) {
+    feature_map <- fit_nystrom_map(
+      adversary_arguments, sigma2, weights, control, seed_offset = 301L
+    )
+    features <- feature_map$training_features
+    q <- crossprod(features, sweep(features, 1L, weights, "*")) /
+      n_population + lambda * diag(ncol(features))
+    b <- drop(crossprod(features, weights * residual) / n_population)
+    solution <- safe_solve(
+      q, b,
+      jitter = control$jitter,
+      max_tries = control$max_solve_tries
+    )
+    return(max(drop(crossprod(b, solution)) / 4, 0))
+  }
   kernel <- gaussian_kernel(adversary_arguments, sigma2 = sigma2)
   q <- sweep(kernel, 2L, weights, "*") %*% kernel /
     n_population + lambda * kernel
@@ -150,6 +363,29 @@ treatment_validation_risk <- function(g_value, adversary_arguments,
                                       target, policy_support, sigma2, lambda,
                                       control) {
   n_population <- sum(weights)
+  if (identical(control$kernel_approximation, "nystrom")) {
+    feature_map <- fit_nystrom_map(
+      adversary_arguments, sigma2, weights, control, seed_offset = 302L
+    )
+    features <- feature_map$training_features
+    policy_features <- predict_nystrom_features(
+      feature_map, adversary_policy_arguments
+    )
+    weighted_support <- weights * policy_support
+    q <- crossprod(
+      features, sweep(features, 1L, weighted_support, "*")
+    ) / n_population + lambda * diag(ncol(features))
+    b <- (
+      drop(crossprod(policy_features, weights * target)) -
+        drop(crossprod(features, weighted_support * g_value))
+    ) / n_population
+    solution <- safe_solve(
+      q, b,
+      jitter = control$jitter,
+      max_tries = control$max_solve_tries
+    )
+    return(max(drop(crossprod(b, solution)) / 4, 0))
+  }
   kernel <- gaussian_kernel(adversary_arguments, sigma2 = sigma2)
   kernel_q <- gaussian_kernel(
     adversary_policy_arguments,

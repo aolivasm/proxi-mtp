@@ -43,6 +43,14 @@
 #' @param max_solve_tries Maximum number of increasing-jitter Cholesky attempts.
 #' @param keep_cv Logical; retain candidate-level cross-validation results.
 #' @param progress Logical; print fold progress.
+#' @param kernel_approximation Kernel backend. `"exact"` uses the complete
+#'   fold-specific Gram matrices. `"nystrom"` uses fold-specific Nystrom
+#'   features for bridge fitting and validation risks.
+#' @param nystrom_rank Positive fixed rank or a function of the number of rows
+#'   in the current fold. The default [pmtp_nystrom_rank()] grows as
+#'   `2 * n^(2/3)`, subject to a minimum of 30 and the fold size.
+#' @param nystrom_landmarks Landmark sampling scheme. `"uniform"` samples rows
+#'   uniformly; `"weighted"` samples in proportion to the analysis weights.
 #'
 #' @return A list of class `pmtp_control`.
 #' @export
@@ -70,9 +78,14 @@ pmtp_control <- function(
     selection_rule = c(
       "minimum", "one_se_regularized", "one_se_interior"
     ),
-    inner_repeats = 1L) {
+    inner_repeats = 1L,
+    kernel_approximation = c("exact", "nystrom"),
+    nystrom_rank = pmtp_nystrom_rank(),
+    nystrom_landmarks = c("uniform", "weighted")) {
   assert_flag(tune, "tune")
   selection_rule <- match.arg(selection_rule)
+  kernel_approximation <- match.arg(kernel_approximation)
+  nystrom_landmarks <- match.arg(nystrom_landmarks)
   if (length(inner_repeats) != 1L || is.na(inner_repeats) ||
       inner_repeats < 1L || inner_repeats != as.integer(inner_repeats)) {
     stop("`inner_repeats` must be a positive integer.", call. = FALSE)
@@ -102,6 +115,7 @@ pmtp_control <- function(
   assert_positive(max_norm_g, "max_norm_g", allow_inf = TRUE)
   assert_flag(keep_cv, "keep_cv")
   assert_flag(progress, "progress")
+  resolve_nystrom_rank(nystrom_rank, 10L)
 
   structure(list(
     outer_folds = as.integer(outer_folds),
@@ -125,7 +139,10 @@ pmtp_control <- function(
     jitter = jitter,
     max_solve_tries = as.integer(max_solve_tries),
     keep_cv = keep_cv,
-    progress = progress
+    progress = progress,
+    kernel_approximation = kernel_approximation,
+    nystrom_rank = nystrom_rank,
+    nystrom_landmarks = nystrom_landmarks
   ), class = "pmtp_control")
 }
 
@@ -157,7 +174,12 @@ pmtp_control_fixed <- function(
     max_solve_tries = 8L,
     keep_cv = FALSE,
     progress = FALSE,
-    selection_rule = "minimum") {
+    selection_rule = "minimum",
+    kernel_approximation = c("exact", "nystrom"),
+    nystrom_rank = pmtp_nystrom_rank(),
+    nystrom_landmarks = c("uniform", "weighted")) {
+  kernel_approximation <- match.arg(kernel_approximation)
+  nystrom_landmarks <- match.arg(nystrom_landmarks)
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = 1L,
@@ -179,7 +201,10 @@ pmtp_control_fixed <- function(
     jitter = jitter,
     max_solve_tries = max_solve_tries,
     keep_cv = keep_cv,
-    progress = progress
+    progress = progress,
+    kernel_approximation = kernel_approximation,
+    nystrom_rank = nystrom_rank,
+    nystrom_landmarks = nystrom_landmarks
   )
 }
 
@@ -193,7 +218,12 @@ pmtp_control_fixed <- function(
 pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
                               seed = 1234L, progress = FALSE,
                               selection_rule = "minimum",
-                              inner_repeats = 1L) {
+                              inner_repeats = 1L,
+                              kernel_approximation = c("exact", "nystrom"),
+                              nystrom_rank = pmtp_nystrom_rank(),
+                              nystrom_landmarks = c("uniform", "weighted")) {
+  kernel_approximation <- match.arg(kernel_approximation)
+  nystrom_landmarks <- match.arg(nystrom_landmarks)
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = inner_folds,
@@ -208,6 +238,9 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
     bandwidth_hp = 1 / 4,
     selection_rule = selection_rule,
     seed = seed,
-    progress = progress
+    progress = progress,
+    kernel_approximation = kernel_approximation,
+    nystrom_rank = nystrom_rank,
+    nystrom_landmarks = nystrom_landmarks
   )
 }

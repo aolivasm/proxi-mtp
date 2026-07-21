@@ -82,3 +82,129 @@ median_bandwidth <- function(x, w = rep(1, nrow(x))) {
   }
   sigma2
 }
+
+#' A sample-size-dependent Nystrom rank rule
+#'
+#' Creates a rank rule of the form
+#' `ceiling(multiplier * n^exponent)`, truncated to the requested lower and
+#' upper bounds and to the number of rows available in the current training
+#' fold. Using an exponent strictly between zero and one makes the rank grow
+#' with the fold sample size while remaining sublinear.
+#'
+#' @param exponent Power applied to the number of rows in the current fold.
+#' @param multiplier Positive multiplier for the power rule.
+#' @param min_rank Smallest requested rank before truncation to the fold size.
+#' @param max_rank Largest requested rank. Use `Inf` for no fixed upper bound.
+#'
+#' @return A function that maps a positive fold sample size to a Nystrom rank.
+#' @export
+pmtp_nystrom_rank <- function(exponent = 2 / 3, multiplier = 2,
+                              min_rank = 30L, max_rank = Inf) {
+  if (!is.numeric(exponent) || length(exponent) != 1L || is.na(exponent) ||
+      exponent <= 0 || exponent >= 1) {
+    stop("`exponent` must lie strictly between zero and one.", call. = FALSE)
+  }
+  assert_positive(multiplier, "multiplier")
+  assert_positive(min_rank, "min_rank")
+  assert_positive(max_rank, "max_rank", allow_inf = TRUE)
+  if (length(multiplier) != 1L || length(min_rank) != 1L ||
+      length(max_rank) != 1L) {
+    stop("Rank-rule arguments must be scalar.", call. = FALSE)
+  }
+  if (min_rank > max_rank) {
+    stop("`min_rank` cannot exceed `max_rank`.", call. = FALSE)
+  }
+
+  rule <- function(n) {
+    assert_positive(n, "n")
+    if (length(n) != 1L || n != as.integer(n)) {
+      stop("`n` must be a positive integer.", call. = FALSE)
+    }
+    requested <- ceiling(multiplier * n^exponent)
+    as.integer(min(n, max(min_rank, min(max_rank, requested))))
+  }
+  structure(
+    rule,
+    class = c("pmtp_nystrom_rank_rule", "function"),
+    exponent = exponent,
+    multiplier = multiplier,
+    min_rank = min_rank,
+    max_rank = max_rank
+  )
+}
+
+resolve_nystrom_rank <- function(rank, n) {
+  requested <- if (is.function(rank)) rank(n) else rank
+  if (!is.numeric(requested) || length(requested) != 1L ||
+      is.na(requested) || !is.finite(requested) || requested <= 0) {
+    stop(
+      "`nystrom_rank` must be a positive number or a function returning one.",
+      call. = FALSE
+    )
+  }
+  as.integer(min(n, ceiling(requested)))
+}
+
+select_nystrom_landmarks <- function(n, rank, weights, method, seed) {
+  if (rank >= n) return(seq_len(n))
+  probability <- NULL
+  if (identical(method, "weighted")) {
+    probability <- weights / sum(weights)
+  }
+  withr::with_seed(seed, sample.int(
+    n, size = rank, replace = FALSE, prob = probability
+  ))
+}
+
+fit_nystrom_map <- function(x, sigma2, weights, control, seed_offset = 0L) {
+  x <- as.matrix(x)
+  n <- nrow(x)
+  rank <- resolve_nystrom_rank(control$nystrom_rank, n)
+  landmark_indices <- select_nystrom_landmarks(
+    n = n,
+    rank = rank,
+    weights = weights,
+    method = control$nystrom_landmarks,
+    seed = control$seed + seed_offset
+  )
+  landmarks <- x[landmark_indices, , drop = FALSE]
+  landmark_kernel <- gaussian_kernel(landmarks, sigma2 = sigma2)
+  decomposition <- eigen(
+    (landmark_kernel + t(landmark_kernel)) / 2,
+    symmetric = TRUE
+  )
+  cutoff <- max(decomposition$values) *
+    .Machine$double.eps * max(1, length(landmark_indices))
+  keep <- which(decomposition$values > cutoff)
+  if (!length(keep)) {
+    stop("The Nystrom landmark kernel has zero numerical rank.", call. = FALSE)
+  }
+  transform <- sweep(
+    decomposition$vectors[, keep, drop = FALSE],
+    2L,
+    sqrt(decomposition$values[keep]),
+    "/"
+  )
+  training_features <- gaussian_kernel(
+    x, landmarks, sigma2 = sigma2
+  ) %*% transform
+
+  structure(list(
+    landmarks = landmarks,
+    transform = transform,
+    training_features = training_features,
+    sigma2 = sigma2,
+    n_observations = n,
+    requested_rank = rank,
+    effective_rank = length(keep),
+    landmark_indices = landmark_indices
+  ), class = "pmtp_nystrom_map")
+}
+
+predict_nystrom_features <- function(object, new_arguments) {
+  gaussian_kernel(
+    new_arguments,
+    object$landmarks,
+    sigma2 = object$sigma2
+  ) %*% object$transform
+}

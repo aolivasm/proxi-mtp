@@ -326,14 +326,16 @@ pmtp <- function(
           (dat$y[validation] - h0[validation])
       g_cv$final <- list(
         norm = g_final$fit$norm,
-        bandwidth = g_final$base_bandwidth
+        bandwidth = g_final$base_bandwidth,
+        approximation = g_final$fit$approximation
       )
       tuning[[fold]]$treatment[[policy_index]] <- g_cv
       names(tuning[[fold]]$treatment)[policy_index] <- names(policies)[policy_index]
     }
     tuning[[fold]]$outcome$final <- list(
       norm = h_final$fit$norm,
-      bandwidth = h_final$base_bandwidth
+      bandwidth = h_final$base_bandwidth,
+      approximation = h_final$fit$approximation
     )
   }
 
