@@ -240,6 +240,12 @@ test_that("cached and uncached Nyström tuning are numerically identical", {
   control$kernel_approximation <- "nystrom"
   control$nystrom_rank <- 7L
   control$nystrom_landmarks <- "weighted"
+  control$lambda_h <- c(1e-3, 1e-2, 1e-1)
+  control$lambda_gp <- c(0.1, 1)
+  control$lambda_g <- c(1e-3, 1e-2, 1e-1)
+  control$lambda_hp <- c(0.1, 1)
+  control$bandwidth_h <- c(0.5, 1)
+  control$bandwidth_g <- c(0.5, 1)
   control$cache_kernel_features <- TRUE
 
   cached <- suppressWarnings(pmtp(

@@ -115,6 +115,42 @@ test_that("control validates selection rules", {
   expect_error(pmtp_control(selection_rule = "unsupported"), "arg")
 })
 
+test_that("boundary warnings distinguish near ties from unsupported minima", {
+  grid <- compact_grid(
+    outer_lambda = c(1, 10, 100),
+    inner_lambda = 1,
+    outer_bandwidth = 1,
+    inner_bandwidth = 1
+  )
+  near_tied <- transform(
+    grid,
+    mean_risk = c(0.10, 0.105, 0.11),
+    finite_folds = 2L,
+    fold1_risk = c(0.08, 0.085, 0.09),
+    fold2_risk = c(0.12, 0.125, 0.13)
+  )
+  selected <- select_cv_row(near_tied, grid, "test")
+  diagnostic <- expect_no_warning(warn_grid_boundary(
+    selected, near_tied, grid, "Test bridge"
+  ))
+  expect_true(diagnostic$boundary[["outer_lambda_scale"]])
+  expect_true(diagnostic$has_interior_alternative[["outer_lambda_scale"]])
+  expect_false(diagnostic$unsupported_boundary[["outer_lambda_scale"]])
+
+  separated <- near_tied
+  separated$mean_risk <- c(0.10, 0.20, 0.21)
+  separated$fold1_risk <- c(0.099, 0.19, 0.20)
+  separated$fold2_risk <- c(0.101, 0.21, 0.22)
+  selected <- select_cv_row(separated, grid, "test")
+  expect_warning(
+    diagnostic <- warn_grid_boundary(
+      selected, separated, grid, "Test bridge"
+    ),
+    "no interior candidate"
+  )
+  expect_true(diagnostic$unsupported_boundary[["outer_lambda_scale"]])
+})
+
 test_that("repeated inner CV retains every fold risk", {
   data <- make_test_data(n = 40L)
   control <- pmtp_control(

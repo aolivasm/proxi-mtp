@@ -52,9 +52,10 @@
 #' @param nystrom_landmarks Landmark sampling scheme. `"uniform"` samples rows
 #'   uniformly; `"weighted"` samples in proportion to the analysis weights.
 #' @param cache_kernel_features Logical; reuse fold-specific Nystrom feature
-#'   maps across tuning candidates with the same bandwidth. This changes only
-#'   computation, not landmarks, risks, or fitted estimators. It is ignored by
-#'   the exact backend.
+#'   maps and shared minimax systems across tuning candidates with the same
+#'   bandwidths and inner penalty. This changes only computation, not
+#'   landmarks, risks, or fitted estimators. It is ignored by the exact
+#'   backend.
 #'
 #' @return A list of class `pmtp_control`.
 #' @export

@@ -54,9 +54,10 @@ in the current fold. The default \code{\link[=pmtp_nystrom_rank]{pmtp_nystrom_ra
 uniformly; \code{"weighted"} samples in proportion to the analysis weights.}
 
 \item{cache_kernel_features}{Logical; reuse fold-specific Nystrom feature
-maps across tuning candidates with the same bandwidth. This changes only
-computation, not landmarks, risks, or fitted estimators. It is ignored by
-the exact backend.}
+maps and shared minimax systems across tuning candidates with the same
+bandwidths and inner penalty. This changes only computation, not
+landmarks, risks, or fitted estimators. It is ignored by the exact
+backend.}
 }
 \value{
 A list of class \code{pmtp_control}.

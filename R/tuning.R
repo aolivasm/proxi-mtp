@@ -30,6 +30,140 @@ cache_nystrom_maps <- function(arguments, sigma2, weights, control,
   })
 }
 
+nystrom_penalty_path_groups <- function(grid) {
+  split(
+    seq_len(nrow(grid)),
+    interaction(
+      grid$inner_lambda_scale,
+      grid$outer_bandwidth_scale,
+      grid$inner_bandwidth_scale,
+      drop = TRUE,
+      lex.order = TRUE
+    )
+  )
+}
+
+evaluate_outcome_nystrom_grid <- function(
+    prepared, training_y, validation_y, training_weights, validation_weights, grid,
+    n_training, base_h, base_gp, risk_base, risk_lambda,
+    feature_cache, control) {
+  risks <- rep(Inf, nrow(grid))
+  groups <- nystrom_penalty_path_groups(grid)
+  for (indices in groups) {
+    first <- indices[1L]
+    outer_index <- match(
+      grid$outer_bandwidth_scale[first], feature_cache$outer_scales
+    )
+    inner_index <- match(
+      grid$inner_bandwidth_scale[first], feature_cache$inner_scales
+    )
+    system <- tryCatch(
+      prepare_outcome_bridge_nystrom_system(
+        feature_cache$outer[[outer_index]],
+        feature_cache$inner[[inner_index]],
+        training_y,
+        training_weights,
+        actual_inner_lambda(
+          grid$inner_lambda_scale[first], n_training
+        ),
+        control
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(system)) next
+    for (candidate in indices) {
+      risks[candidate] <- tryCatch({
+        fit <- finish_outcome_bridge_nystrom_system(
+          system = system,
+          lambda_h = actual_outer_lambda(
+            grid$outer_lambda_scale[candidate], n_training
+          ),
+          sigma2_h = base_h * grid$outer_bandwidth_scale[candidate],
+          sigma2_gp = base_gp * grid$inner_bandwidth_scale[candidate],
+          max_norm = control$max_norm_h,
+          control = control
+        )
+        prediction <- predict_outcome_bridge(fit, prepared$validation$h)
+        outcome_validation_risk(
+          residual = validation_y - prediction,
+          adversary_arguments = prepared$validation$g,
+          weights = validation_weights,
+          sigma2 = risk_base * control$risk_bandwidth,
+          lambda = risk_lambda,
+          control = control,
+          feature_map = feature_cache$risk
+        )
+      }, error = function(e) Inf)
+    }
+  }
+  risks
+}
+
+evaluate_treatment_nystrom_grid <- function(
+    prepared, training_weights, validation_weights, training_target,
+    validation_target, training_support, validation_support, grid,
+    n_training, base_g, base_hp, risk_base, risk_lambda,
+    feature_cache, control) {
+  risks <- rep(Inf, nrow(grid))
+  groups <- nystrom_penalty_path_groups(grid)
+  for (indices in groups) {
+    first <- indices[1L]
+    outer_index <- match(
+      grid$outer_bandwidth_scale[first], feature_cache$outer_scales
+    )
+    inner_index <- match(
+      grid$inner_bandwidth_scale[first], feature_cache$inner_scales
+    )
+    system <- tryCatch(
+      prepare_treatment_bridge_nystrom_system(
+        feature_cache$outer[[outer_index]],
+        feature_cache$inner[[inner_index]],
+        feature_cache$policy_inner_features[[inner_index]],
+        training_weights,
+        training_target,
+        training_support,
+        actual_inner_lambda(
+          grid$inner_lambda_scale[first], n_training
+        ),
+        control
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(system)) next
+    for (candidate in indices) {
+      risks[candidate] <- tryCatch({
+        fit <- finish_treatment_bridge_nystrom_system(
+          system = system,
+          lambda_g = actual_outer_lambda(
+            grid$outer_lambda_scale[candidate], n_training
+          ),
+          sigma2_g = base_g * grid$outer_bandwidth_scale[candidate],
+          sigma2_hp = base_hp * grid$inner_bandwidth_scale[candidate],
+          max_norm = control$max_norm_g,
+          control = control
+        )
+        prediction <- predict_treatment_bridge(
+          fit, prepared$validation$g
+        )
+        treatment_validation_risk(
+          g_value = prediction,
+          adversary_arguments = prepared$validation$h,
+          adversary_policy_arguments = prepared$validation$hq,
+          weights = validation_weights,
+          target = validation_target,
+          policy_support = validation_support,
+          sigma2 = risk_base * control$risk_bandwidth,
+          lambda = risk_lambda,
+          control = control,
+          feature_map = feature_cache$risk,
+          policy_features = feature_cache$risk_policy_features
+        )
+      }, error = function(e) Inf)
+    }
+  }
+  risks
+}
+
 fixed_outcome_tuning <- function(control) {
   selected <- tuning_grid_h(control)
   selected$mean_risk <- NA_real_
@@ -156,22 +290,40 @@ select_cv_row <- function(results, grid, bridge_name,
   selected
 }
 
-warn_grid_boundary <- function(selected, grid, bridge_name) {
+warn_grid_boundary <- function(selected, results, grid, bridge_name) {
   fields <- c(
     "outer_lambda_scale", "inner_lambda_scale",
     "outer_bandwidth_scale", "inner_bandwidth_scale"
   )
+  minimum <- grid[selected$minimum_grid_index, , drop = FALSE]
   boundary <- vapply(fields, function(field) {
-    is_grid_boundary(selected[[field]], grid[[field]])
+    is_grid_boundary(minimum[[field]], grid[[field]])
   }, logical(1))
-  if (any(boundary)) {
+  within_one_se <- is.finite(results$mean_risk) &
+    results$mean_risk <= selected$one_se_threshold
+  has_interior_alternative <- vapply(fields, function(field) {
+    candidates <- sort(unique(grid[[field]]))
+    if (length(candidates) <= 1L) return(TRUE)
+    any(within_one_se & !grid[[field]] %in% range(candidates))
+  }, logical(1))
+  unsupported_boundary <- boundary & !has_interior_alternative
+  if (any(unsupported_boundary)) {
     warning(
-      bridge_name, " tuning selected a grid boundary for: ",
-      paste(fields[boundary], collapse = ", "),
-      ". Consider expanding the grid.",
+      bridge_name,
+      " selected a grid boundary with no interior candidate within one ",
+      "cross-validation standard error for: ",
+      paste(fields[unsupported_boundary], collapse = ", "),
+      ". Consider expanding that grid dimension.",
       call. = FALSE
     )
   }
+  invisible(list(
+    boundary = stats::setNames(boundary, fields),
+    has_interior_alternative = stats::setNames(
+      has_interior_alternative, fields
+    ),
+    unsupported_boundary = stats::setNames(unsupported_boundary, fields)
+  ))
 }
 
 tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
@@ -231,6 +383,24 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
         )
       )
     }
+    if (!is.null(feature_cache)) {
+      risks[, risk_index] <- evaluate_outcome_nystrom_grid(
+        prepared = prepared,
+        training_y = dat$y[training],
+        validation_y = dat$y[validation],
+        training_weights = dat$weight[training],
+        validation_weights = dat$weight[validation],
+        grid = grid,
+        n_training = n_training,
+        base_h = base_h,
+        base_gp = base_gp,
+        risk_base = risk_base,
+        risk_lambda = risk_lambda,
+        feature_cache = feature_cache,
+        control = control
+      )
+      next
+    }
 
     for (candidate in seq_len(nrow(grid))) {
       risks[candidate, risk_index] <- tryCatch({
@@ -280,7 +450,8 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
     results, grid, "Outcome", control$selection_rule
   )
   warn_grid_boundary(
-    grid[selected$minimum_grid_index, , drop = FALSE],
+    selected,
+    results,
     grid,
     "Outcome bridge risk minimum"
   )
@@ -359,6 +530,28 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
         )
       )
     }
+    if (!is.null(feature_cache)) {
+      risks[, risk_index] <- evaluate_treatment_nystrom_grid(
+        prepared = prepared,
+        training_weights = dat$weight[training],
+        validation_weights = dat$weight[validation],
+        training_target = dat$target[training],
+        validation_target = dat$target[validation],
+        training_support =
+          dat$policy_support[[policy_index]][training],
+        validation_support =
+          dat$policy_support[[policy_index]][validation],
+        grid = grid,
+        n_training = n_training,
+        base_g = base_g,
+        base_hp = base_hp,
+        risk_base = risk_base,
+        risk_lambda = risk_lambda,
+        feature_cache = feature_cache,
+        control = control
+      )
+      next
+    }
 
     for (candidate in seq_len(nrow(grid))) {
       risks[candidate, risk_index] <- tryCatch({
@@ -419,7 +612,8 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
     results, grid, "Treatment", control$selection_rule
   )
   warn_grid_boundary(
-    grid[selected$minimum_grid_index, , drop = FALSE],
+    selected,
+    results,
     grid,
     "Treatment bridge risk minimum"
   )

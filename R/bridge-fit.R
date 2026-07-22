@@ -84,19 +84,11 @@ nystrom_map_summary <- function(object) {
   )
 }
 
-fit_outcome_bridge_nystrom <- function(
-    h, gp, y, weights, lambda_h, lambda_gp,
-    sigma2_h, sigma2_gp, max_norm, control, feature_maps = NULL) {
+prepare_outcome_bridge_nystrom_system <- function(
+    h_map, gp_map, y, weights, lambda_gp, control) {
   n_population <- sum(weights)
-  h_map <- feature_maps$outer %||% fit_nystrom_map(
-    h, sigma2_h, weights, control, seed_offset = 101L
-  )
-  gp_map <- feature_maps$inner %||% fit_nystrom_map(
-    gp, sigma2_gp, weights, control, seed_offset = 102L
-  )
   phi_h <- h_map$training_features
   phi_gp <- gp_map$training_features
-
   weighted_phi_gp <- sweep(phi_gp, 1L, weights, "*")
   q_inner <- crossprod(phi_gp, weighted_phi_gp) / n_population +
     lambda_gp * diag(ncol(phi_gp))
@@ -111,54 +103,73 @@ fit_outcome_bridge_nystrom <- function(
   )
   q_solve_c <- q_solution[, seq_len(ncol(c_inner)), drop = FALSE]
   q_solve_d <- q_solution[, ncol(q_solution), drop = TRUE]
+  list(
+    base_matrix = crossprod(c_inner, q_solve_c),
+    rhs = drop(crossprod(c_inner, q_solve_d)),
+    outer_map = h_map,
+    inner_map = gp_map,
+    lambda_inner = lambda_gp
+  )
+}
 
-  a <- crossprod(c_inner, q_solve_c) +
-    4 * lambda_h * diag(ncol(phi_h))
-  b <- drop(crossprod(c_inner, q_solve_d))
-  solution <- solve_feature_with_norm_bound(a, b, max_norm, control)
+finish_outcome_bridge_nystrom_system <- function(
+    system, lambda_h, sigma2_h, sigma2_gp, max_norm, control) {
+  a <- system$base_matrix +
+    4 * lambda_h * diag(ncol(system$outer_map$training_features))
+  solution <- solve_feature_with_norm_bound(
+    a, system$rhs, max_norm, control
+  )
   approximation <- list(
     method = "nystrom",
-    outer = nystrom_map_summary(h_map),
-    inner = nystrom_map_summary(gp_map),
+    outer = nystrom_map_summary(system$outer_map),
+    inner = nystrom_map_summary(system$inner_map),
     landmark_sampling = control$nystrom_landmarks
   )
-  h_map$training_features <- NULL
-
+  prediction_map <- system$outer_map
+  prediction_map$training_features <- NULL
   structure(list(
     coefficients = solution$coef,
-    feature_map = h_map,
+    feature_map = prediction_map,
     kernel_approximation = "nystrom",
     approximation = approximation,
     sigma2 = sigma2_h,
     norm = solution$norm,
     constraint = solution$constraint,
     lambda_outer = lambda_h,
-    lambda_inner = lambda_gp,
+    lambda_inner = system$lambda_inner,
     sigma2_inner = sigma2_gp
   ), class = "pmtp_outcome_bridge")
 }
 
-fit_treatment_bridge_nystrom <- function(
-    g, hp, hp_q, weights, target, policy_support,
-    lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control,
-    feature_maps = NULL) {
+fit_outcome_bridge_nystrom <- function(
+    h, gp, y, weights, lambda_h, lambda_gp,
+    sigma2_h, sigma2_gp, max_norm, control, feature_maps = NULL) {
+  h_map <- feature_maps$outer %||% fit_nystrom_map(
+    h, sigma2_h, weights, control, seed_offset = 101L
+  )
+  gp_map <- feature_maps$inner %||% fit_nystrom_map(
+    gp, sigma2_gp, weights, control, seed_offset = 102L
+  )
+  system <- prepare_outcome_bridge_nystrom_system(
+    h_map, gp_map, y, weights, lambda_gp, control
+  )
+  finish_outcome_bridge_nystrom_system(
+    system, lambda_h, sigma2_h, sigma2_gp, max_norm, control
+  )
+}
+
+prepare_treatment_bridge_nystrom_system <- function(
+    g_map, hp_map, policy_inner_features, weights, target, policy_support,
+    lambda_hp, control) {
   n_population <- sum(weights)
-  g_map <- feature_maps$outer %||% fit_nystrom_map(
-    g, sigma2_g, weights, control, seed_offset = 201L
-  )
-  hp_map <- feature_maps$inner %||% fit_nystrom_map(
-    hp, sigma2_hp, weights, control, seed_offset = 202L
-  )
   phi_g <- g_map$training_features
   phi_hp <- hp_map$training_features
-  phi_hp_q <- feature_maps$policy_inner_features %||%
-    predict_nystrom_features(hp_map, hp_q)
   weighted_support <- weights * policy_support
-
   q_inner <- crossprod(
     phi_hp, sweep(phi_hp, 1L, weighted_support, "*")
   ) / n_population + lambda_hp * diag(ncol(phi_hp))
-  a_inner <- drop(crossprod(phi_hp_q, weights * target) / n_population)
+  a_inner <- drop(crossprod(policy_inner_features, weights * target) /
+    n_population)
   b_inner <- crossprod(
     phi_hp, sweep(phi_g, 1L, weighted_support, "*")
   ) / n_population
@@ -170,31 +181,63 @@ fit_treatment_bridge_nystrom <- function(
   )
   q_solve_b <- q_solution[, seq_len(ncol(b_inner)), drop = FALSE]
   q_solve_a <- q_solution[, ncol(q_solution), drop = TRUE]
+  list(
+    base_matrix = crossprod(b_inner, q_solve_b),
+    rhs = drop(crossprod(b_inner, q_solve_a)),
+    outer_map = g_map,
+    inner_map = hp_map,
+    lambda_inner = lambda_hp
+  )
+}
 
-  a <- crossprod(b_inner, q_solve_b) +
-    4 * lambda_g * diag(ncol(phi_g))
-  b <- drop(crossprod(b_inner, q_solve_a))
-  solution <- solve_feature_with_norm_bound(a, b, max_norm, control)
+finish_treatment_bridge_nystrom_system <- function(
+    system, lambda_g, sigma2_g, sigma2_hp, max_norm, control) {
+  a <- system$base_matrix +
+    4 * lambda_g * diag(ncol(system$outer_map$training_features))
+  solution <- solve_feature_with_norm_bound(
+    a, system$rhs, max_norm, control
+  )
   approximation <- list(
     method = "nystrom",
-    outer = nystrom_map_summary(g_map),
-    inner = nystrom_map_summary(hp_map),
+    outer = nystrom_map_summary(system$outer_map),
+    inner = nystrom_map_summary(system$inner_map),
     landmark_sampling = control$nystrom_landmarks
   )
-  g_map$training_features <- NULL
-
+  prediction_map <- system$outer_map
+  prediction_map$training_features <- NULL
   structure(list(
     coefficients = solution$coef,
-    feature_map = g_map,
+    feature_map = prediction_map,
     kernel_approximation = "nystrom",
     approximation = approximation,
     sigma2 = sigma2_g,
     norm = solution$norm,
     constraint = solution$constraint,
     lambda_outer = lambda_g,
-    lambda_inner = lambda_hp,
+    lambda_inner = system$lambda_inner,
     sigma2_inner = sigma2_hp
   ), class = "pmtp_treatment_bridge")
+}
+
+fit_treatment_bridge_nystrom <- function(
+    g, hp, hp_q, weights, target, policy_support,
+    lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control,
+    feature_maps = NULL) {
+  g_map <- feature_maps$outer %||% fit_nystrom_map(
+    g, sigma2_g, weights, control, seed_offset = 201L
+  )
+  hp_map <- feature_maps$inner %||% fit_nystrom_map(
+    hp, sigma2_hp, weights, control, seed_offset = 202L
+  )
+  policy_inner_features <- feature_maps$policy_inner_features %||%
+    predict_nystrom_features(hp_map, hp_q)
+  system <- prepare_treatment_bridge_nystrom_system(
+    g_map, hp_map, policy_inner_features, weights, target, policy_support,
+    lambda_hp, control
+  )
+  finish_treatment_bridge_nystrom_system(
+    system, lambda_g, sigma2_g, sigma2_hp, max_norm, control
+  )
 }
 
 fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
