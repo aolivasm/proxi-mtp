@@ -109,6 +109,12 @@ test_that("dimension-aware fitting uses the bridge-specific dimensions", {
   )
 
   for (fold in seq_along(dimension_aware$tuning)) {
+    expect_true(is.numeric(
+      dimension_aware$tuning[[fold]]$outcome$final$constraint
+    ))
+    expect_true(is.numeric(
+      dimension_aware$tuning[[fold]]$treatment[[1]]$final$constraint
+    ))
     expect_equal(
       dimension_aware$tuning[[fold]]$outcome$final$critical_radius_dimension,
       c(outer = 3, inner = 3)

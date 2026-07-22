@@ -326,6 +326,7 @@ pmtp <- function(
           (dat$y[validation] - h0[validation])
       g_cv$final <- list(
         norm = g_final$fit$norm,
+        constraint = g_final$fit$constraint,
         bandwidth = g_final$base_bandwidth,
         critical_radius_dimension = g_final$critical_radius_dimension,
         approximation = g_final$fit$approximation
@@ -335,6 +336,7 @@ pmtp <- function(
     }
     tuning[[fold]]$outcome$final <- list(
       norm = h_final$fit$norm,
+      constraint = h_final$fit$constraint,
       bandwidth = h_final$base_bandwidth,
       critical_radius_dimension = h_final$critical_radius_dimension,
       approximation = h_final$fit$approximation

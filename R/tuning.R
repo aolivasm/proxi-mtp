@@ -260,14 +260,15 @@ select_cv_row <- function(results, grid, bridge_name,
   )
   selected_index <- minimum_index
   if (identical(selection_rule, "one_se_regularized")) {
-    largest_penalty <- max(grid$outer_lambda_scale[one_se_indices])
-    eligible <- one_se_indices[
-      grid$outer_lambda_scale[one_se_indices] == largest_penalty
-    ]
-    largest_bandwidth <- max(grid$outer_bandwidth_scale[eligible])
-    eligible <- eligible[
-      grid$outer_bandwidth_scale[eligible] == largest_bandwidth
-    ]
+    regularization_fields <- c(
+      "outer_lambda_scale", "inner_lambda_scale",
+      "outer_bandwidth_scale", "inner_bandwidth_scale"
+    )
+    eligible <- one_se_indices
+    for (field in regularization_fields) {
+      largest_value <- max(grid[[field]][eligible])
+      eligible <- eligible[grid[[field]][eligible] == largest_value]
+    }
     selected_index <- eligible[which.min(results$mean_risk[eligible])]
   } else if (identical(selection_rule, "one_se_interior")) {
     boundary_fields <- c(

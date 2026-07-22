@@ -75,6 +75,30 @@ test_that("one-SE selection never leaves the risk threshold", {
   expect_equal(selected$outer_bandwidth_scale, 1)
 })
 
+test_that("one-SE regularization accounts for the adversary penalty", {
+  grid <- compact_grid(
+    outer_lambda = c(1, 10),
+    inner_lambda = c(1, 10),
+    outer_bandwidth = 1,
+    inner_bandwidth = 1
+  )
+  results <- transform(
+    grid,
+    mean_risk = c(0.10, 0.102, 0.101, 0.103),
+    finite_folds = 2L,
+    fold1_risk = c(0.08, 0.082, 0.081, 0.083),
+    fold2_risk = c(0.12, 0.122, 0.121, 0.123)
+  )
+
+  selected <- select_cv_row(
+    results, grid, "test", selection_rule = "one_se_regularized"
+  )
+
+  expect_equal(selected$outer_lambda_scale, 10)
+  expect_equal(selected$inner_lambda_scale, 10)
+  expect_lte(selected$mean_risk, selected$one_se_threshold)
+})
+
 test_that("one-SE interior selection avoids boundaries before comparing risk", {
   grid <- compact_grid(
     outer_lambda = c(1, 10, 100),

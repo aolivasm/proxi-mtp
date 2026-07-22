@@ -38,9 +38,11 @@
 #' @param selection_rule Cross-validation selection rule. `"minimum"` selects
 #'   the smallest mean validation risk. The experimental
 #'   `"one_se_regularized"` rule forms a one-standard-error set using the
-#'   foldwise risk standard error at the minimum, then prefers the largest
-#'   outer bridge penalty and the largest external kernel bandwidth; remaining
-#'   ties use the smallest mean risk. The experimental `"one_se_interior"`
+#'   foldwise risk standard error at the minimum, then lexicographically
+#'   prefers larger outer and inner penalties followed by larger external and
+#'   adversarial kernel bandwidths; remaining ties use the smallest mean risk.
+#'   The experimental
+#'   `"one_se_interior"`
 #'   rule instead prefers the fewest boundary coordinates within the same
 #'   one-standard-error set, then uses the smallest mean risk.
 #' @param max_norm_h,max_norm_g Optional RKHS norm bounds. Use `Inf` to disable.
