@@ -2,7 +2,7 @@
 % Please edit documentation in R/paper-dgp.R
 \name{pmtp_oracle_estimates}
 \alias{pmtp_oracle_estimates}
-\title{Oracle estimators for a simulated paper-DGP sample}
+\title{Backward-compatible name for analytic bridge-reference estimators}
 \usage{
 pmtp_oracle_estimates(
   data,
@@ -19,12 +19,8 @@ the specification attached to \code{data}.}
 \item{weights}{Optional nonnegative analysis weights.}
 }
 \value{
-A list containing estimator values, bridge values, contributions,
-and analytic bridge parameters.
+The value returned by \code{\link[=pmtp_analytic_estimates]{pmtp_analytic_estimates()}}.
 }
 \description{
-Calculates the OR, DQW, and DR estimators with the analytic bridge
-functions. Versions using the realized outcome and its latent conditional
-probability are both returned. The latter removes Bernoulli outcome noise
-and is useful only for simulation diagnostics.
+Backward-compatible name for analytic bridge-reference estimators
 }

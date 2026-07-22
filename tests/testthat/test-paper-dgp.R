@@ -24,7 +24,7 @@ test_that("paper DGP is reproducible and respects truncated supports", {
 })
 
 test_that("analytic bridge coefficients reproduce the supplement values", {
-  parameters <- pmtp_oracle_bridge_parameters(pmtp_dgp_spec())
+  parameters <- pmtp_analytic_bridge_parameters(pmtp_dgp_spec())
 
   expect_equal(
     parameters$phi,
@@ -34,31 +34,47 @@ test_that("analytic bridge coefficients reproduce the supplement values", {
   expect_equal(parameters$eta, c(0.4, -0.08, -0.2, -0.1), tolerance = 1e-12)
   expect_true(parameters$treatment_exact)
   expect_false(parameters$outcome_exact)
+  expect_identical(parameters$outcome_reference, "appendix_f1_approximation")
+  expect_identical(parameters$treatment_reference, "exact_beta8_zero")
+  expect_equal(
+    pmtp_oracle_bridge_parameters(pmtp_dgp_spec()),
+    parameters
+  )
 })
 
 test_that("outcome bridge is exact in the algebraic sanity-check DGP", {
   spec <- pmtp_dgp_spec(beta10 = 0, beta12 = 0)
   data <- simulate_pmtp_dgp(200, spec, seed = 92)
-  bridge <- pmtp_oracle_bridges(data$A, data$L, data$Z, data$W, spec)
-  parameters <- pmtp_oracle_bridge_parameters(spec)
+  bridge <- pmtp_analytic_bridges(data$A, data$L, data$Z, data$W, spec)
+  parameters <- pmtp_analytic_bridge_parameters(spec)
 
   expect_true(parameters$outcome_exact)
   expect_true(parameters$treatment_exact)
+  expect_identical(parameters$outcome_reference, "exact_sanity_check")
   expect_equal(bridge$h, data$p_y, tolerance = 1e-13)
+  expect_equal(
+    pmtp_oracle_bridges(data$A, data$L, data$Z, data$W, spec),
+    bridge
+  )
 })
 
 test_that("exact treatment bridge recovers the target in a large diagnostic sample", {
   spec <- pmtp_dgp_spec()
   data <- simulate_pmtp_dgp(30000, spec, seed = 103)
-  oracle <- pmtp_oracle_estimates(data, spec)
+  analytic <- pmtp_analytic_estimates(data, spec)
 
-  expect_lt(abs(oracle$conditional_mean[["DQW"]] - oracle$sample_truth), 0.01)
-  expect_lt(abs(oracle$conditional_mean[["DR"]] - oracle$sample_truth), 0.01)
+  expect_lt(
+    abs(analytic$conditional_mean[["DQW"]] - analytic$sample_truth), 0.01
+  )
+  expect_lt(
+    abs(analytic$conditional_mean[["DR"]] - analytic$sample_truth), 0.01
+  )
+  expect_equal(pmtp_oracle_estimates(data, spec), analytic)
 })
 
 test_that("parametric estimating equations solve on the paper DGP", {
   spec <- pmtp_dgp_spec()
-  parameters <- pmtp_oracle_bridge_parameters(spec)
+  parameters <- pmtp_analytic_bridge_parameters(spec)
   data <- simulate_pmtp_dgp(600, spec, seed = 20260721)
   fit <- pmtp_parametric(
     data,

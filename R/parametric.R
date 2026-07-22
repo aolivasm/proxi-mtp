@@ -146,7 +146,7 @@ pmtp_parametric <- function(data, spec = pmtp_dgp_spec(), weights = NULL,
       max_iterations < 1 || max_iterations != as.integer(max_iterations)) {
     stop("`max_iterations` must be a positive integer.", call. = FALSE)
   }
-  bridge_parameters <- pmtp_oracle_bridge_parameters(spec)
+  bridge_parameters <- pmtp_analytic_bridge_parameters(spec)
 
   if (!is.null(start_h) && (length(start_h) != 5L || any(!is.finite(start_h)))) {
     stop("`start_h` must contain five finite values.", call. = FALSE)

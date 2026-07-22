@@ -275,7 +275,7 @@ sample_pmtp_two_phase <- function(
   )
 }
 
-#' Analytic bridge parameters for the paper's DGP
+#' Analytic bridge-reference parameters for the paper's DGP
 #'
 #' The treatment-bridge parameters are exact when `beta8 = 0` and are the
 #' Appendix F.2 approximation otherwise. The outcome-bridge parameters are the
@@ -284,10 +284,12 @@ sample_pmtp_two_phase <- function(
 #'
 #' @param spec A specification created by [pmtp_dgp_spec()].
 #'
-#' @return A list containing `phi`, `eta`, the truncated-normal variance, and
-#'   indicators describing when the bridges are exact.
+#' @return A list containing `phi`, `eta`, the truncated-normal variance,
+#'   indicators describing when the bridges are exact, and explicit reference
+#'   labels. In particular, `phi` must not be interpreted as an oracle outcome
+#'   bridge unless `outcome_exact` is `TRUE`.
 #' @export
-pmtp_oracle_bridge_parameters <- function(spec = pmtp_dgp_spec()) {
+pmtp_analytic_bridge_parameters <- function(spec = pmtp_dgp_spec()) {
   spec <- validate_dgp_spec(spec)
   beta <- spec$beta
   truncated_variance <- truncated_standard_variance()
@@ -318,14 +320,40 @@ pmtp_oracle_bridge_parameters <- function(spec = pmtp_dgp_spec()) {
     eta3 = -spec$delta^2 * (beta["beta3"]^2 + beta["beta7"]^2) /
       (2 * denominator^2)
   )
+  outcome_exact <- isTRUE(all.equal(unname(beta["beta10"]), 0)) &&
+    isTRUE(all.equal(unname(beta["beta12"]), 0))
+  treatment_exact <- isTRUE(all.equal(unname(beta["beta8"]), 0))
   list(
     phi = unname(phi),
     eta = unname(eta),
     truncated_variance = truncated_variance,
-    outcome_exact = isTRUE(all.equal(unname(beta["beta10"]), 0)) &&
-      isTRUE(all.equal(unname(beta["beta12"]), 0)),
-    treatment_exact = isTRUE(all.equal(unname(beta["beta8"]), 0))
+    outcome_exact = outcome_exact,
+    treatment_exact = treatment_exact,
+    outcome_reference = if (outcome_exact) {
+      "exact_sanity_check"
+    } else {
+      "appendix_f1_approximation"
+    },
+    treatment_reference = if (treatment_exact) {
+      "exact_beta8_zero"
+    } else {
+      "appendix_f2_approximation"
+    }
   )
+}
+
+#' Backward-compatible name for analytic bridge-reference parameters
+#'
+#' `pmtp_oracle_bridge_parameters()` is retained for existing code. The name
+#' predates the distinction between the Appendix F.1 outcome approximation and
+#' an exact oracle bridge. New code should use
+#' [pmtp_analytic_bridge_parameters()].
+#'
+#' @inheritParams pmtp_analytic_bridge_parameters
+#' @return The value returned by [pmtp_analytic_bridge_parameters()].
+#' @export
+pmtp_oracle_bridge_parameters <- function(spec = pmtp_dgp_spec()) {
+  pmtp_analytic_bridge_parameters(spec)
 }
 
 pmtp_parametric_h_value <- function(a, l, w, phi, truncated_variance) {
@@ -356,24 +384,25 @@ pmtp_parametric_g_value <- function(a, l, z, eta, spec) {
   value
 }
 
-#' Evaluate the paper's analytic bridge functions
+#' Evaluate the paper's analytic bridge-reference functions
 #'
 #' @param a,l,z,w Numeric vectors of equal length.
 #' @param spec A specification created by [pmtp_dgp_spec()].
 #' @param parameters Optional parameters returned by
-#'   [pmtp_oracle_bridge_parameters()].
+#'   [pmtp_analytic_bridge_parameters()].
 #'
-#' @return A list containing analytic outcome- and treatment-bridge values.
+#' @return A list containing the Appendix F.1 outcome approximation and the
+#'   analytic treatment-bridge values. The latter are exact when `beta8 = 0`.
 #' @export
-pmtp_oracle_bridges <- function(a, l, z, w, spec = pmtp_dgp_spec(),
-                                parameters = NULL) {
+pmtp_analytic_bridges <- function(a, l, z, w, spec = pmtp_dgp_spec(),
+                                  parameters = NULL) {
   spec <- validate_dgp_spec(spec)
   lengths <- c(length(a), length(l), length(z), length(w))
   if (length(unique(lengths)) != 1L || any(lengths == 0L)) {
     stop("`a`, `l`, `z`, and `w` must have the same positive length.",
          call. = FALSE)
   }
-  if (is.null(parameters)) parameters <- pmtp_oracle_bridge_parameters(spec)
+  if (is.null(parameters)) parameters <- pmtp_analytic_bridge_parameters(spec)
   list(
     h = pmtp_parametric_h_value(
       a, l, w, parameters$phi, parameters$truncated_variance
@@ -382,10 +411,22 @@ pmtp_oracle_bridges <- function(a, l, z, w, spec = pmtp_dgp_spec(),
   )
 }
 
-#' Oracle estimators for a simulated paper-DGP sample
+#' Backward-compatible name for analytic bridge-reference functions
 #'
-#' Calculates the OR, DQW, and DR estimators with the analytic bridge
-#' functions. Versions using the realized outcome and its latent conditional
+#' @inheritParams pmtp_analytic_bridges
+#' @return The value returned by [pmtp_analytic_bridges()].
+#' @export
+pmtp_oracle_bridges <- function(a, l, z, w, spec = pmtp_dgp_spec(),
+                                parameters = NULL) {
+  pmtp_analytic_bridges(a, l, z, w, spec, parameters)
+}
+
+#' Analytic bridge-reference estimators for a paper-DGP sample
+#'
+#' Calculates the OR, DQW, and DR estimators with the analytic bridge-reference
+#' functions. The outcome function is the Appendix F.1 approximation unless
+#' its exactness indicator is true; the treatment function is exact when
+#' `beta8 = 0`. Versions using the realized outcome and its latent conditional
 #' probability are both returned. The latter removes Bernoulli outcome noise
 #' and is useful only for simulation diagnostics.
 #'
@@ -397,11 +438,12 @@ pmtp_oracle_bridges <- function(a, l, z, w, spec = pmtp_dgp_spec(),
 #' @return A list containing estimator values, bridge values, contributions,
 #'   and analytic bridge parameters.
 #' @export
-pmtp_oracle_estimates <- function(data, spec = attr(data, "spec"),
-                                  weights = rep(1, nrow(data))) {
+pmtp_analytic_estimates <- function(data, spec = attr(data, "spec"),
+                                    weights = rep(1, nrow(data))) {
   spec <- validate_dgp_spec(spec)
   assert_columns(
-    data, c("Y", "A", "L", "Z", "W", "p_y"), "oracle data"
+    data, c("Y", "A", "L", "Z", "W", "p_y"),
+    "analytic-reference data"
   )
   assert_positive(weights, "weights")
   if (length(weights) != nrow(data)) {
@@ -410,8 +452,10 @@ pmtp_oracle_estimates <- function(data, spec = attr(data, "spec"),
   q_a <- pmtp_taper_policy(data$A, spec)
   target <- pmtp_policy_target(data$A, spec)
   support <- pmtp_policy_support(data$A, spec)
-  parameters <- pmtp_oracle_bridge_parameters(spec)
-  observed <- pmtp_oracle_bridges(data$A, data$L, data$Z, data$W, spec, parameters)
+  parameters <- pmtp_analytic_bridge_parameters(spec)
+  observed <- pmtp_analytic_bridges(
+    data$A, data$L, data$Z, data$W, spec, parameters
+  )
   shifted_h <- numeric(nrow(data))
   shifted_h[target == 1] <- pmtp_parametric_h_value(
     q_a[target == 1], data$L[target == 1], data$W[target == 1],
@@ -446,4 +490,14 @@ pmtp_oracle_estimates <- function(data, spec = attr(data, "spec"),
     ),
     parameters = parameters
   )
+}
+
+#' Backward-compatible name for analytic bridge-reference estimators
+#'
+#' @inheritParams pmtp_analytic_estimates
+#' @return The value returned by [pmtp_analytic_estimates()].
+#' @export
+pmtp_oracle_estimates <- function(data, spec = attr(data, "spec"),
+                                  weights = rep(1, nrow(data))) {
+  pmtp_analytic_estimates(data, spec, weights)
 }

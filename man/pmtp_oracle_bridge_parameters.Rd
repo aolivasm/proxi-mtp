@@ -2,7 +2,7 @@
 % Please edit documentation in R/paper-dgp.R
 \name{pmtp_oracle_bridge_parameters}
 \alias{pmtp_oracle_bridge_parameters}
-\title{Analytic bridge parameters for the paper's DGP}
+\title{Backward-compatible name for analytic bridge-reference parameters}
 \usage{
 pmtp_oracle_bridge_parameters(spec = pmtp_dgp_spec())
 }
@@ -10,12 +10,11 @@ pmtp_oracle_bridge_parameters(spec = pmtp_dgp_spec())
 \item{spec}{A specification created by \code{\link[=pmtp_dgp_spec]{pmtp_dgp_spec()}}.}
 }
 \value{
-A list containing \code{phi}, \code{eta}, the truncated-normal variance, and
-indicators describing when the bridges are exact.
+The value returned by \code{\link[=pmtp_analytic_bridge_parameters]{pmtp_analytic_bridge_parameters()}}.
 }
 \description{
-The treatment-bridge parameters are exact when \code{beta8 = 0} and are the
-Appendix F.2 approximation otherwise. The outcome-bridge parameters are the
-Appendix F.1 approximation; they are exact in the simple sanity-check case
-\code{beta10 = beta12 = 0}.
+\code{pmtp_oracle_bridge_parameters()} is retained for existing code. The name
+predates the distinction between the Appendix F.1 outcome approximation and
+an exact oracle bridge. New code should use
+\code{\link[=pmtp_analytic_bridge_parameters]{pmtp_analytic_bridge_parameters()}}.
 }
