@@ -64,7 +64,9 @@ evaluate_outcome_nystrom_grid <- function(
         training_y,
         training_weights,
         actual_inner_lambda(
-          grid$inner_lambda_scale[first], n_training
+          grid$inner_lambda_scale[first], n_training,
+          dimension = ncol(prepared$train$g),
+          rule = control$critical_radius_rule
         ),
         control
       ),
@@ -76,7 +78,9 @@ evaluate_outcome_nystrom_grid <- function(
         fit <- finish_outcome_bridge_nystrom_system(
           system = system,
           lambda_h = actual_outer_lambda(
-            grid$outer_lambda_scale[candidate], n_training
+            grid$outer_lambda_scale[candidate], n_training,
+            dimension = ncol(prepared$train$h),
+            rule = control$critical_radius_rule
           ),
           sigma2_h = base_h * grid$outer_bandwidth_scale[candidate],
           sigma2_gp = base_gp * grid$inner_bandwidth_scale[candidate],
@@ -123,7 +127,9 @@ evaluate_treatment_nystrom_grid <- function(
         training_target,
         training_support,
         actual_inner_lambda(
-          grid$inner_lambda_scale[first], n_training
+          grid$inner_lambda_scale[first], n_training,
+          dimension = ncol(prepared$train$h),
+          rule = control$critical_radius_rule
         ),
         control
       ),
@@ -135,7 +141,9 @@ evaluate_treatment_nystrom_grid <- function(
         fit <- finish_treatment_bridge_nystrom_system(
           system = system,
           lambda_g = actual_outer_lambda(
-            grid$outer_lambda_scale[candidate], n_training
+            grid$outer_lambda_scale[candidate], n_training,
+            dimension = ncol(prepared$train$g),
+            rule = control$critical_radius_rule
           ),
           sigma2_g = base_g * grid$outer_bandwidth_scale[candidate],
           sigma2_hp = base_hp * grid$inner_bandwidth_scale[candidate],
@@ -352,7 +360,12 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
       prepared$validation$g,
       dat$weight[validation]
     )
-    risk_lambda <- control$risk_penalty * log(n_validation) / n_validation
+    risk_lambda <- actual_risk_lambda(
+      control$risk_penalty,
+      n_validation,
+      dimension = ncol(prepared$validation$g),
+      rule = control$critical_radius_rule
+    )
     feature_cache <- NULL
     if (use_nystrom_feature_cache(control)) {
       outer_scales <- unique(grid$outer_bandwidth_scale)
@@ -420,10 +433,14 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
           y = dat$y[training],
           weights = dat$weight[training],
           lambda_h = actual_outer_lambda(
-            grid$outer_lambda_scale[candidate], n_training
+            grid$outer_lambda_scale[candidate], n_training,
+            dimension = ncol(prepared$train$h),
+            rule = control$critical_radius_rule
           ),
           lambda_gp = actual_inner_lambda(
-            grid$inner_lambda_scale[candidate], n_training
+            grid$inner_lambda_scale[candidate], n_training,
+            dimension = ncol(prepared$train$g),
+            rule = control$critical_radius_rule
           ),
           sigma2_h = base_h * grid$outer_bandwidth_scale[candidate],
           sigma2_gp = base_gp * grid$inner_bandwidth_scale[candidate],
@@ -491,7 +508,12 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
       prepared$validation$h,
       dat$weight[validation]
     )
-    risk_lambda <- control$risk_penalty * log(n_validation) / n_validation
+    risk_lambda <- actual_risk_lambda(
+      control$risk_penalty,
+      n_validation,
+      dimension = ncol(prepared$validation$h),
+      rule = control$critical_radius_rule
+    )
     feature_cache <- NULL
     if (use_nystrom_feature_cache(control)) {
       outer_scales <- unique(grid$outer_bandwidth_scale)
@@ -578,10 +600,14 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
           target = dat$target[training],
           policy_support = dat$policy_support[[policy_index]][training],
           lambda_g = actual_outer_lambda(
-            grid$outer_lambda_scale[candidate], n_training
+            grid$outer_lambda_scale[candidate], n_training,
+            dimension = ncol(prepared$train$g),
+            rule = control$critical_radius_rule
           ),
           lambda_hp = actual_inner_lambda(
-            grid$inner_lambda_scale[candidate], n_training
+            grid$inner_lambda_scale[candidate], n_training,
+            dimension = ncol(prepared$train$h),
+            rule = control$critical_radius_rule
           ),
           sigma2_g = base_g * grid$outer_bandwidth_scale[candidate],
           sigma2_hp = base_hp * grid$inner_bandwidth_scale[candidate],
@@ -640,8 +666,16 @@ fit_selected_outcome <- function(dat, training, validation, tuning, control) {
     gp = prepared$train$g,
     y = dat$y[training],
     weights = dat$weight[training],
-    lambda_h = actual_outer_lambda(tuning$outer_lambda_scale, n_training),
-    lambda_gp = actual_inner_lambda(tuning$inner_lambda_scale, n_training),
+    lambda_h = actual_outer_lambda(
+      tuning$outer_lambda_scale, n_training,
+      dimension = ncol(prepared$train$h),
+      rule = control$critical_radius_rule
+    ),
+    lambda_gp = actual_inner_lambda(
+      tuning$inner_lambda_scale, n_training,
+      dimension = ncol(prepared$train$g),
+      rule = control$critical_radius_rule
+    ),
     sigma2_h = base_h * tuning$outer_bandwidth_scale,
     sigma2_gp = base_gp * tuning$inner_bandwidth_scale,
     max_norm = control$max_norm_h,
@@ -651,6 +685,10 @@ fit_selected_outcome <- function(dat, training, validation, tuning, control) {
     fit = fit,
     h0 = predict_outcome_bridge(fit, prepared$validation$h),
     prepared = prepared,
+    critical_radius_dimension = c(
+      outer = ncol(prepared$train$h),
+      inner = ncol(prepared$train$g)
+    ),
     base_bandwidth = c(h = base_h, gp = base_gp)
   )
 }
@@ -667,8 +705,16 @@ fit_selected_treatment <- function(dat, training, validation, policy_index,
     weights = dat$weight[training],
     target = dat$target[training],
     policy_support = dat$policy_support[[policy_index]][training],
-    lambda_g = actual_outer_lambda(tuning$outer_lambda_scale, n_training),
-    lambda_hp = actual_inner_lambda(tuning$inner_lambda_scale, n_training),
+    lambda_g = actual_outer_lambda(
+      tuning$outer_lambda_scale, n_training,
+      dimension = ncol(prepared$train$g),
+      rule = control$critical_radius_rule
+    ),
+    lambda_hp = actual_inner_lambda(
+      tuning$inner_lambda_scale, n_training,
+      dimension = ncol(prepared$train$h),
+      rule = control$critical_radius_rule
+    ),
     sigma2_g = base_g * tuning$outer_bandwidth_scale,
     sigma2_hp = base_hp * tuning$inner_bandwidth_scale,
     max_norm = control$max_norm_g,
@@ -677,6 +723,10 @@ fit_selected_treatment <- function(dat, training, validation, policy_index,
   list(
     fit = fit,
     g0 = predict_treatment_bridge(fit, prepared$validation$g),
+    critical_radius_dimension = c(
+      outer = ncol(prepared$train$g),
+      inner = ncol(prepared$train$h)
+    ),
     base_bandwidth = c(g = base_g, hp = base_hp)
   )
 }

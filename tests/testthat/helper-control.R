@@ -1,4 +1,4 @@
-minimal_control <- function(seed = 19L) {
+minimal_control <- function(seed = 19L, critical_radius_rule = "legacy_d1") {
   pmtp_control(
     outer_folds = 2L,
     inner_folds = 2L,
@@ -10,6 +10,7 @@ minimal_control <- function(seed = 19L) {
     bandwidth_gp = 1 / 2,
     bandwidth_g = 1,
     bandwidth_hp = 1 / 2,
+    critical_radius_rule = critical_radius_rule,
     max_norm_h = Inf,
     max_norm_g = Inf,
     seed = seed,

@@ -327,6 +327,7 @@ pmtp <- function(
       g_cv$final <- list(
         norm = g_final$fit$norm,
         bandwidth = g_final$base_bandwidth,
+        critical_radius_dimension = g_final$critical_radius_dimension,
         approximation = g_final$fit$approximation
       )
       tuning[[fold]]$treatment[[policy_index]] <- g_cv
@@ -335,6 +336,7 @@ pmtp <- function(
     tuning[[fold]]$outcome$final <- list(
       norm = h_final$fit$norm,
       bandwidth = h_final$base_bandwidth,
+      critical_radius_dimension = h_final$critical_radius_dimension,
       approximation = h_final$fit$approximation
     )
   }

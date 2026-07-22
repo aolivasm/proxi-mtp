@@ -18,6 +18,7 @@ pmtp_control(
   bandwidth_hp = 1/4,
   risk_bandwidth = 1/4,
   risk_penalty = 1,
+  critical_radius_rule = c("legacy_d1", "gaussian_dimension"),
   max_norm_h = 50,
   max_norm_g = 50,
   seed = 1234L,
@@ -60,7 +61,15 @@ adversarial kernel variances.}
 \item{risk_bandwidth}{Multiplier for validation-risk kernel variances. The
 base bandwidth is recomputed on each validation fold.}
 
-\item{risk_penalty}{Scaling factor for \code{log(n) / n} in validation risks.}
+\item{risk_penalty}{Scaling factor for the squared critical-radius rate in
+validation risks.}
+
+\item{critical_radius_rule}{Penalty-rate rule. \code{"legacy_d1"} preserves the
+preprint implementation, using \code{log(n)} as though every Gaussian RKHS had
+dimension one. The experimental \code{"gaussian_dimension"} rule uses
+\code{log(n)^d}, where \code{d} is the number of columns in the relevant bridge or
+adversarial-kernel input. The number of observed rows in each fold remains
+the sample-size argument under either rule.}
 
 \item{max_norm_h, max_norm_g}{Optional RKHS norm bounds. Use \code{Inf} to disable.}
 

@@ -27,7 +27,14 @@
 #'   adversarial kernel variances.
 #' @param risk_bandwidth Multiplier for validation-risk kernel variances. The
 #'   base bandwidth is recomputed on each validation fold.
-#' @param risk_penalty Scaling factor for `log(n) / n` in validation risks.
+#' @param risk_penalty Scaling factor for the squared critical-radius rate in
+#'   validation risks.
+#' @param critical_radius_rule Penalty-rate rule. `"legacy_d1"` preserves the
+#'   preprint implementation, using `log(n)` as though every Gaussian RKHS had
+#'   dimension one. The experimental `"gaussian_dimension"` rule uses
+#'   `log(n)^d`, where `d` is the number of columns in the relevant bridge or
+#'   adversarial-kernel input. The number of observed rows in each fold remains
+#'   the sample-size argument under either rule.
 #' @param selection_rule Cross-validation selection rule. `"minimum"` selects
 #'   the smallest mean validation risk. The experimental
 #'   `"one_se_regularized"` rule forms a one-standard-error set using the
@@ -73,6 +80,7 @@ pmtp_control <- function(
     bandwidth_hp = 1 / 4,
     risk_bandwidth = 1 / 4,
     risk_penalty = 1,
+    critical_radius_rule = c("legacy_d1", "gaussian_dimension"),
     max_norm_h = 50,
     max_norm_g = 50,
     seed = 1234L,
@@ -90,6 +98,7 @@ pmtp_control <- function(
     cache_kernel_features = TRUE) {
   assert_flag(tune, "tune")
   selection_rule <- match.arg(selection_rule)
+  critical_radius_rule <- match.arg(critical_radius_rule)
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
   if (length(inner_repeats) != 1L || is.na(inner_repeats) ||
@@ -139,6 +148,7 @@ pmtp_control <- function(
     bandwidth_hp = bandwidth_hp,
     risk_bandwidth = risk_bandwidth,
     risk_penalty = risk_penalty,
+    critical_radius_rule = critical_radius_rule,
     selection_rule = selection_rule,
     max_norm_h = max_norm_h,
     max_norm_g = max_norm_g,
@@ -175,6 +185,7 @@ pmtp_control_fixed <- function(
     bandwidth_hp = 1 / 4,
     risk_bandwidth = 1 / 4,
     risk_penalty = 1,
+    critical_radius_rule = c("legacy_d1", "gaussian_dimension"),
     max_norm_h = 50,
     max_norm_g = 50,
     seed = 1234L,
@@ -189,6 +200,7 @@ pmtp_control_fixed <- function(
     cache_kernel_features = TRUE) {
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
+  critical_radius_rule <- match.arg(critical_radius_rule)
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = 1L,
@@ -203,6 +215,7 @@ pmtp_control_fixed <- function(
     bandwidth_hp = bandwidth_hp,
     risk_bandwidth = risk_bandwidth,
     risk_penalty = risk_penalty,
+    critical_radius_rule = critical_radius_rule,
     selection_rule = selection_rule,
     max_norm_h = max_norm_h,
     max_norm_g = max_norm_g,
@@ -229,12 +242,16 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
                               seed = 1234L, progress = FALSE,
                               selection_rule = "minimum",
                               inner_repeats = 1L,
+                              critical_radius_rule = c(
+                                "legacy_d1", "gaussian_dimension"
+                              ),
                               kernel_approximation = c("exact", "nystrom"),
                               nystrom_rank = pmtp_nystrom_rank(),
                               nystrom_landmarks = c("uniform", "weighted"),
                               cache_kernel_features = TRUE) {
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
+  critical_radius_rule <- match.arg(critical_radius_rule)
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = inner_folds,
@@ -248,6 +265,7 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
     bandwidth_g = c(1 / 2, 1),
     bandwidth_hp = 1 / 4,
     selection_rule = selection_rule,
+    critical_radius_rule = critical_radius_rule,
     seed = seed,
     progress = progress,
     kernel_approximation = kernel_approximation,

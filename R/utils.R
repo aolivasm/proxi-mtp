@@ -175,12 +175,45 @@ compact_grid <- function(outer_lambda, inner_lambda,
   grid
 }
 
-actual_outer_lambda <- function(scale, population_size) {
-  scale * sqrt(log(population_size) / population_size)
+critical_radius_squared <- function(population_size, dimension = 1L,
+                                    rule = c(
+                                      "legacy_d1", "gaussian_dimension"
+                                    )) {
+  rule <- match.arg(rule)
+  if (length(population_size) != 1L || !is.numeric(population_size) ||
+      is.na(population_size) || !is.finite(population_size) ||
+      population_size <= 1) {
+    stop("`population_size` must be a finite number greater than one.",
+         call. = FALSE)
+  }
+  if (length(dimension) != 1L || !is.numeric(dimension) ||
+      is.na(dimension) || !is.finite(dimension) || dimension < 1L ||
+      dimension != as.integer(dimension)) {
+    stop("`dimension` must be a positive integer.", call. = FALSE)
+  }
+  exponent <- if (identical(rule, "legacy_d1")) 1L else as.integer(dimension)
+  log(population_size)^exponent / population_size
 }
 
-actual_inner_lambda <- function(scale, population_size) {
-  scale * log(population_size) / population_size
+actual_outer_lambda <- function(scale, population_size, dimension = 1L,
+                                rule = "legacy_d1") {
+  scale * sqrt(critical_radius_squared(
+    population_size, dimension = dimension, rule = rule
+  ))
+}
+
+actual_inner_lambda <- function(scale, population_size, dimension = 1L,
+                                rule = "legacy_d1") {
+  scale * critical_radius_squared(
+    population_size, dimension = dimension, rule = rule
+  )
+}
+
+actual_risk_lambda <- function(scale, population_size, dimension = 1L,
+                               rule = "legacy_d1") {
+  actual_inner_lambda(
+    scale, population_size, dimension = dimension, rule = rule
+  )
 }
 
 is_grid_boundary <- function(value, candidates) {

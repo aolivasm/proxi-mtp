@@ -11,6 +11,7 @@ pmtp_control_fast(
   progress = FALSE,
   selection_rule = "minimum",
   inner_repeats = 1L,
+  critical_radius_rule = c("legacy_d1", "gaussian_dimension"),
   kernel_approximation = c("exact", "nystrom"),
   nystrom_rank = pmtp_nystrom_rank(),
   nystrom_landmarks = c("uniform", "weighted"),
@@ -41,6 +42,13 @@ one-standard-error set, then uses the smallest mean risk.}
 The default of one reproduces ordinary inner cross-validation. Values
 greater than one average validation risk over all repeat-by-fold
 evaluations while preserving the training fraction of \code{inner_folds}.}
+
+\item{critical_radius_rule}{Penalty-rate rule. \code{"legacy_d1"} preserves the
+preprint implementation, using \code{log(n)} as though every Gaussian RKHS had
+dimension one. The experimental \code{"gaussian_dimension"} rule uses
+\code{log(n)^d}, where \code{d} is the number of columns in the relevant bridge or
+adversarial-kernel input. The number of observed rows in each fold remains
+the sample-size argument under either rule.}
 
 \item{kernel_approximation}{Kernel backend. \code{"exact"} uses the complete
 fold-specific Gram matrices. \code{"nystrom"} uses fold-specific Nystrom
