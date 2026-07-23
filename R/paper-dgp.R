@@ -256,9 +256,12 @@ pmtp_paper_scenario <- function(
     c7 = 0.2728130435,
     c8 = {
       references <- data.frame(
-        beta_z = c(3, 1.5, 1, 0.75),
-        beta_w = c(-3, -1.5, -1, -0.75),
-        truth = c(0.1943476258, 0.2297173399, 0.2399637134, 0.2445412003)
+        beta_z = c(3, 2, 1.5, 1, 0.75, 0.5),
+        beta_w = c(-3, -2, -1.5, -1, -0.75, -0.5),
+        truth = c(
+          0.1943476258, 0.2184408879, 0.2297173399,
+          0.2399637134, 0.2445412003, 0.2487874399
+        )
       )
       matched <- vapply(seq_len(nrow(references)), function(index) {
         isTRUE(all.equal(beta_z, references$beta_z[index])) &&

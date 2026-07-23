@@ -9,6 +9,8 @@ Authors@R: c(
       email = "antonio.olivas@gmail.com"
     )
   )
+Author: Antonio Olivas-Martinez [aut, cre]
+Maintainer: Antonio Olivas-Martinez <antonio.olivas@gmail.com>
 Description: Estimates counterfactual means under modified treatment policies
     using proximal causal inference. Outcome and treatment bridge functions are
     learned in Gaussian reproducing kernel Hilbert spaces with weighted minimax

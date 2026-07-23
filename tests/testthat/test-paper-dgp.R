@@ -67,8 +67,16 @@ test_that("paper scenario helper centralizes policies, support, and truths", {
   c8 <- pmtp_paper_scenario("c8", beta_z = 0.75, beta_w = -0.75)
   expect_equal(c8$truth, 0.2445412003)
   expect_equal(unname(c8$spec$beta[c("beta8", "beta12")]), c(0.3, -0.3))
+  expect_equal(
+    pmtp_paper_scenario("c8", beta_z = 2, beta_w = -2)$truth,
+    0.2184408879
+  )
+  expect_equal(
+    pmtp_paper_scenario("c8", beta_z = 0.5, beta_w = -0.5)$truth,
+    0.2487874399
+  )
   expect_error(
-    pmtp_paper_scenario("c8", beta_z = 2, beta_w = -2),
+    pmtp_paper_scenario("c8", beta_z = 0.6, beta_w = -0.6),
     "supply `truth`"
   )
 
