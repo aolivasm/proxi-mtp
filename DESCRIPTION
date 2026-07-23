@@ -24,9 +24,17 @@ Imports:
     stats,
     withr
 Suggests:
+    arm,
+    earth,
+    gam,
+    glmnet,
     knitr,
+    lmtp,
+    ranger,
     rmarkdown,
-    testthat (>= 3.0.0)
+    SuperLearner,
+    testthat (>= 3.0.0),
+    xgboost
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 Encoding: UTF-8

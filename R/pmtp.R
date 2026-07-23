@@ -32,11 +32,12 @@ normalize_policies <- function(policy) {
   }
   bad <- vapply(policy, function(fun) {
     arguments <- formals(fun)
-    length(arguments) != 1L || "..." %in% names(arguments)
+    !length(arguments) %in% c(1L, 2L) || "..." %in% names(arguments)
   }, logical(1))
   if (any(bad)) {
     stop(
-      "In this package version, each policy must be a vectorized function of treatment only.",
+      "Each policy must be a vectorized function of treatment, or a function ",
+      "of the analysis data and treatment column name.",
       call. = FALSE
     )
   }
@@ -47,7 +48,28 @@ normalize_policies <- function(policy) {
   policy
 }
 
+evaluate_pmtp_policy <- function(policy, data, treatment) {
+  value <- if (length(formals(policy)) == 1L) {
+    policy(data[[treatment]])
+  } else {
+    policy(data, treatment)
+  }
+  if (!is.numeric(value) || length(value) != nrow(data) ||
+      anyNA(value) || any(!is.finite(value))) {
+    stop("Policy must return one finite numeric value per treatment.",
+         call. = FALSE)
+  }
+  as.numeric(value)
+}
+
 infer_policy_support <- function(a, target, policy, policy_name) {
+  if (length(formals(policy)) != 1L) {
+    stop(
+      "Policy `", policy_name, "` depends on the analysis data. Supply its ",
+      "`policy_support` indicator explicitly.",
+      call. = FALSE
+    )
+  }
   target_a <- a[target == 1]
   if (length(target_a) < 2L) {
     stop("At least two target-population observations are required.", call. = FALSE)
@@ -72,6 +94,7 @@ infer_policy_support <- function(a, target, policy, policy_name) {
 }
 
 normalize_policy_support <- function(policy_support, policies, a, target,
+                                     analysis_data, treatment,
                                      complete_rows, original_n) {
   if (is.null(policy_support)) {
     return(Map(
@@ -90,7 +113,17 @@ normalize_policy_support <- function(policy_support, policies, a, target,
   lapply(seq_along(policy_support), function(i) {
     support <- policy_support[[i]]
     if (is.function(support)) {
-      support <- support(a)
+      support <- if (length(formals(support)) == 1L) {
+        support(a)
+      } else if (length(formals(support)) == 2L) {
+        support(analysis_data, treatment)
+      } else {
+        stop(
+          "Policy-support functions must take treatment, or data and the ",
+          "treatment column name.",
+          call. = FALSE
+        )
+      }
     } else if (length(support) == original_n) {
       support <- support[complete_rows]
     }
@@ -139,6 +172,7 @@ build_analysis_data <- function(data, treatment, outcome, covariates,
   w_proxy <- w_proxy_all[complete, , drop = FALSE]
   weight <- as.numeric(weight_all[complete])
   target_value <- normalize_indicator(target_all[complete], "target")
+  analysis_data <- data[complete, , drop = FALSE]
 
   assert_positive(weight, "weights")
   if (length(a) < 8L) {
@@ -146,20 +180,18 @@ build_analysis_data <- function(data, treatment, outcome, covariates,
   }
 
   q <- lapply(seq_along(policies), function(i) {
-    value <- policies[[i]](a)
-    if (!is.numeric(value) || length(value) != length(a) ||
-        anyNA(value) || any(!is.finite(value))) {
-      stop(
-        "Policy `", names(policies)[i],
-        "` must return one finite numeric value per treatment.",
-        call. = FALSE
-      )
-    }
-    as.numeric(value)
+    tryCatch(
+      evaluate_pmtp_policy(policies[[i]], analysis_data, treatment),
+      error = function(error) {
+        stop("Policy `", names(policies)[i], "`: ", conditionMessage(error),
+             call. = FALSE)
+      }
+    )
   })
   names(q) <- names(policies)
   support <- normalize_policy_support(
-    policy_support, policies, a, target_value, complete, original_n
+    policy_support, policies, a, target_value, analysis_data, treatment,
+    complete, original_n
   )
   names(support) <- names(policies)
 
@@ -214,15 +246,18 @@ build_analysis_data <- function(data, treatment, outcome, covariates,
 #'   treatment variables.
 #' @param negative_control_outcome Column name(s) for negative control outcome
 #'   variables.
-#' @param policy A vectorized function of treatment, or a named list of such
-#'   functions.
+#' @param policy A vectorized function of treatment; an `lmtp`-style function
+#'   of the analysis data and treatment column name; or a named list of such
+#'   functions. Data-dependent policies require an explicit `policy_support`.
 #' @param weights Optional column name or numeric vector of inverse inclusion
 #'   probabilities. Do not normalize these weights to mean one.
 #' @param target Optional column name or 0/1 vector indicating the target
 #'   population. Defaults to all observations.
 #' @param policy_support Optional function, vector, or list defining
-#'   `I_q(A)`. When omitted, support is inferred only for policies that are
-#'   monotone over the empirical target-treatment range.
+#'   `I_q(A,L)`. A function may take treatment alone or the analysis data and
+#'   treatment column name. When omitted, support is inferred only for
+#'   treatment-only policies that are monotone over the empirical target
+#'   support.
 #' @param population_size Full phase-one cohort size. By default, uses the sum
 #'   of analysis weights. Supplying this explicitly is recommended for a
 #'   two-phase application.

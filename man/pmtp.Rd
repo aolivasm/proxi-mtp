@@ -32,8 +32,9 @@ treatment variables.}
 \item{negative_control_outcome}{Column name(s) for negative control outcome
 variables.}
 
-\item{policy}{A vectorized function of treatment, or a named list of such
-functions.}
+\item{policy}{A vectorized function of treatment; an \code{lmtp}-style function
+of the analysis data and treatment column name; or a named list of such
+functions. Data-dependent policies require an explicit \code{policy_support}.}
 
 \item{weights}{Optional column name or numeric vector of inverse inclusion
 probabilities. Do not normalize these weights to mean one.}
@@ -42,8 +43,10 @@ probabilities. Do not normalize these weights to mean one.}
 population. Defaults to all observations.}
 
 \item{policy_support}{Optional function, vector, or list defining
-\code{I_q(A)}. When omitted, support is inferred only for policies that are
-monotone over the empirical target-treatment range.}
+\code{I_q(A,L)}. A function may take treatment alone or the analysis data and
+treatment column name. When omitted, support is inferred only for
+treatment-only policies that are monotone over the empirical target
+support.}
 
 \item{population_size}{Full phase-one cohort size. By default, uses the sum
 of analysis weights. Supplying this explicitly is recommended for a

@@ -7,6 +7,7 @@
 pmtp_dgp_spec(
   beta_z = 2,
   beta_w = -2,
+  beta7 = 1,
   beta8 = 0,
   beta10 = -1,
   beta12 = 0,
@@ -21,6 +22,9 @@ pmtp_dgp_spec(
 \item{beta_z}{Coefficient of \code{U} in the negative-control treatment \code{Z}.}
 
 \item{beta_w}{Coefficient of \code{U} in the negative-control outcome \code{W}.}
+
+\item{beta7}{Effect of the latent variable \code{U} on treatment. Set to zero for
+the no-unmeasured-confounding experiment in Supplement C.6.}
 
 \item{beta8}{Direct effect of \code{Z} on treatment.}
 

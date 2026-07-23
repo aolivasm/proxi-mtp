@@ -6,6 +6,8 @@
 #'
 #' @param beta_z Coefficient of `U` in the negative-control treatment `Z`.
 #' @param beta_w Coefficient of `U` in the negative-control outcome `W`.
+#' @param beta7 Effect of the latent variable `U` on treatment. Set to zero for
+#'   the no-unmeasured-confounding experiment in Supplement C.6.
 #' @param beta8 Direct effect of `Z` on treatment.
 #' @param beta10 Direct effect of `U` on the outcome logit.
 #' @param beta12 Direct effect of `W` on the outcome logit.
@@ -15,12 +17,12 @@
 #'
 #' @return A validated list of DGP and policy parameters.
 #' @export
-pmtp_dgp_spec <- function(beta_z = 2, beta_w = -2, beta8 = 0,
+pmtp_dgp_spec <- function(beta_z = 2, beta_w = -2, beta7 = 1, beta8 = 0,
                           beta10 = -1, beta12 = 0,
                           delta = 0.4, epsilon = 1, r = 0L,
                           c = -2, d = 2) {
   values <- c(
-    beta_z = beta_z, beta_w = beta_w, beta8 = beta8,
+    beta_z = beta_z, beta_w = beta_w, beta7 = beta7, beta8 = beta8,
     beta10 = beta10, beta12 = beta12, delta = delta,
     epsilon = epsilon, c = c, d = d
   )
@@ -31,19 +33,18 @@ pmtp_dgp_spec <- function(beta_z = 2, beta_w = -2, beta8 = 0,
     stop("The policy requires delta > 0, epsilon >= 0, and c + delta < d - epsilon.",
          call. = FALSE)
   }
-  if (epsilon == 0) {
-    stop("The current taper-policy implementation requires epsilon > 0.",
-         call. = FALSE)
-  }
   if (length(r) != 1L || is.na(r) || !r %in% c(0, 1)) {
     stop("`r` must be either 0 or 1.", call. = FALSE)
+  }
+  if (epsilon == 0 && r != 1L) {
+    stop("`epsilon = 0` is supported only with `r = 1`.", call. = FALSE)
   }
 
   structure(list(
     beta = c(
       beta1 = 0.5, beta2 = 0.2, beta3 = beta_z,
       beta4 = 0.5, beta5 = beta_w, beta6 = 0.3,
-      beta7 = 1, beta8 = beta8, beta9 = 0.5,
+      beta7 = beta7, beta8 = beta8, beta9 = 0.5,
       beta10 = beta10, beta11 = -1.5, beta12 = beta12
     ),
     mu = -1,
@@ -78,14 +79,66 @@ pmtp_taper_policy <- function(a, spec = pmtp_dgp_spec()) {
   if (!is.numeric(a) || anyNA(a) || any(!is.finite(a))) {
     stop("`a` must contain finite numeric values.", call. = FALSE)
   }
-  lower_end <- spec$d - spec$epsilon - spec$delta
   source_end <- spec$d - spec$r * (spec$epsilon + spec$delta)
-  first <- a >= spec$c & a <= lower_end
-  second <- a > lower_end & a <= source_end
+  source <- a >= spec$c & a <= source_end
+  first <- source & a + spec$delta <= spec$d - spec$epsilon
+  second <- source & !first
   out <- rep(NA_real_, length(a))
   out[first] <- a[first] + spec$delta
-  out[second] <- a[second] +
-    spec$delta / (spec$delta + spec$epsilon) * (spec$d - a[second])
+  if (any(second)) {
+    out[second] <- a[second] +
+      spec$delta / (spec$delta + spec$epsilon) * (spec$d - a[second])
+  }
+  out
+}
+
+#' Covariate-dependent tapered shift used in Supplement C.9
+#'
+#' Adds `delta_negative` to the natural treatment when `L < 0` and
+#' `delta_nonnegative` otherwise, with the same upper-tail taper as
+#' [pmtp_taper_policy()]. The defaults implement the policy in Supplement C.9.
+#'
+#' @param a Numeric treatment values.
+#' @param l Numeric values of the covariate `L`.
+#' @param spec A specification created by [pmtp_dgp_spec()].
+#' @param delta_negative,delta_nonnegative Shift sizes according to the sign of
+#'   `L`.
+#'
+#' @return Numeric policy-shifted treatment values, with `NA` outside the
+#'   policy source set.
+#' @export
+pmtp_covariate_taper_policy <- function(
+    a, l, spec = pmtp_dgp_spec(),
+    delta_negative = 0.6, delta_nonnegative = 0.4) {
+  spec <- validate_dgp_spec(spec)
+  if (!is.numeric(a) || !is.numeric(l) || length(a) != length(l) ||
+      anyNA(a) || anyNA(l) || any(!is.finite(a)) || any(!is.finite(l))) {
+    stop("`a` and `l` must be finite numeric vectors of equal length.",
+         call. = FALSE)
+  }
+  shifts <- c(delta_negative, delta_nonnegative)
+  if (anyNA(shifts) || any(!is.finite(shifts)) || any(shifts <= 0)) {
+    stop("Both covariate-dependent shifts must be finite and positive.",
+         call. = FALSE)
+  }
+  delta <- ifelse(l < 0, delta_negative, delta_nonnegative)
+  if (any(spec$c + delta >= spec$d - spec$epsilon)) {
+    stop("Every shift must satisfy c + delta < d - epsilon.", call. = FALSE)
+  }
+  if (spec$epsilon == 0 && spec$r != 1L) {
+    stop("`epsilon = 0` is supported only with `r = 1`.", call. = FALSE)
+  }
+
+  source_end <- spec$d - spec$r * (spec$epsilon + delta)
+  source <- a >= spec$c & a <= source_end
+  first <- source & a + delta <= spec$d - spec$epsilon
+  second <- source & !first
+  out <- rep(NA_real_, length(a))
+  out[first] <- a[first] + delta[first]
+  if (any(second)) {
+    out[second] <- a[second] + delta[second] /
+      (delta[second] + spec$epsilon) * (spec$d - a[second])
+  }
   out
 }
 
@@ -101,9 +154,141 @@ pmtp_policy_support <- function(a, spec) {
 }
 
 pmtp_policy_v <- function(a, spec) {
+  if (spec$epsilon == 0) {
+    return(as.numeric(a >= spec$c + spec$delta & a <= spec$d))
+  }
   middle <- a >= spec$c + spec$delta & a <= spec$d - spec$epsilon
   upper <- a > spec$d - spec$epsilon & a <= spec$d - spec$r * spec$epsilon
   as.numeric(middle) + (spec$d - a) / spec$epsilon * as.numeric(upper)
+}
+
+#' Configure a paper simulation scenario
+#'
+#' Centralizes the data-generating specification, modified-treatment policy,
+#' exact policy-support indicator, target-population column, and numerical
+#' reference value for the main simulation and Supplement C.6--C.9.
+#'
+#' @param scenario One of `"main"`, `"c6"`, `"c7"`, `"c8"`, or `"c9"`.
+#' @param beta_z,beta_w Proxy coefficients in the paper DGP.
+#' @param truth Optional finite numerical reference overriding the stored value.
+#'   This is required for a C.8 coefficient combination not listed in the
+#'   supplement.
+#'
+#' @details For C.7, the returned policy agrees with the restricted-population
+#'   intervention on target rows. It is extended as the identity outside the
+#'   target population so that estimation routines receive finite values for
+#'   every row; this extension cannot affect the target mean.
+#'
+#' @return A list containing `scenario`, `spec`, `policy`, `policy_support`,
+#'   `target`, and `truth`.
+#' @export
+pmtp_paper_scenario <- function(
+    scenario = c("main", "c6", "c7", "c8", "c9"),
+    beta_z = 2,
+    beta_w = -2,
+    truth = NULL) {
+  scenario <- match.arg(scenario)
+  proxy_coefficients <- c(beta_z = beta_z, beta_w = beta_w)
+  if (!is.numeric(proxy_coefficients) || anyNA(proxy_coefficients) ||
+      any(!is.finite(proxy_coefficients)) || any(proxy_coefficients == 0)) {
+    stop("`beta_z` and `beta_w` must be finite nonzero numbers.",
+         call. = FALSE)
+  }
+  arguments <- list(beta_z = beta_z, beta_w = beta_w)
+  if (scenario == "c6") arguments$beta7 <- 0
+  if (scenario == "c7") {
+    arguments$epsilon <- 0
+    arguments$r <- 1L
+  }
+  if (scenario == "c8") {
+    arguments$beta8 <- 0.3
+    arguments$beta12 <- -0.3
+  }
+  spec <- do.call(pmtp_dgp_spec, arguments)
+
+  if (scenario == "c9") {
+    policy <- local({
+      policy_spec <- spec
+      function(data, treatment) {
+        pmtp_covariate_taper_policy(
+          data[[treatment]], data$L, policy_spec
+        )
+      }
+    })
+    policy_support <- local({
+      policy_spec <- spec
+      function(data, treatment) {
+        delta <- ifelse(data$L < 0, 0.6, 0.4)
+        as.numeric(
+          data[[treatment]] >= policy_spec$c + delta &
+            data[[treatment]] <= policy_spec$d
+        )
+      }
+    })
+  } else {
+    policy <- local({
+      policy_spec <- spec
+      restricted_target <- identical(scenario, "c7")
+      function(a) {
+        shifted <- pmtp_taper_policy(a, policy_spec)
+        # C.7 targets A <= d - delta.  The bridge estimator still needs a
+        # finite policy value on the non-target rows, although those values
+        # are annihilated by the target indicator.  Leaving treatment
+        # unchanged there is a neutral total extension of the restricted
+        # policy and does not alter the counterfactual target mean.
+        if (restricted_target) {
+          outside <- !is.finite(shifted)
+          shifted[outside] <- a[outside]
+        }
+        shifted
+      }
+    })
+    policy_support <- local({
+      policy_spec <- spec
+      function(a) pmtp_policy_support(a, policy_spec)
+    })
+  }
+
+  stored_truth <- switch(
+    scenario,
+    main = 0.2512175977,
+    c6 = 0.2081192301,
+    c7 = 0.2728130435,
+    c8 = {
+      references <- data.frame(
+        beta_z = c(3, 1.5, 1, 0.75),
+        beta_w = c(-3, -1.5, -1, -0.75),
+        truth = c(0.1943476258, 0.2297173399, 0.2399637134, 0.2445412003)
+      )
+      matched <- vapply(seq_len(nrow(references)), function(index) {
+        isTRUE(all.equal(beta_z, references$beta_z[index])) &&
+          isTRUE(all.equal(beta_w, references$beta_w[index]))
+      }, logical(1))
+      if (any(matched)) references$truth[which(matched)[1L]] else NA_real_
+    },
+    c9 = 0.2406921500
+  )
+  if (!is.null(truth)) {
+    if (!is.numeric(truth) || length(truth) != 1L || is.na(truth) ||
+        !is.finite(truth)) {
+      stop("`truth` must be one finite numeric value.", call. = FALSE)
+    }
+    stored_truth <- truth
+  }
+  if (!is.finite(stored_truth)) {
+    stop(
+      "No stored C.8 truth matches these coefficients; supply `truth`.",
+      call. = FALSE
+    )
+  }
+  structure(list(
+    scenario = scenario,
+    spec = spec,
+    policy = policy,
+    policy_support = policy_support,
+    target = if (scenario == "c7") "target" else NULL,
+    truth = stored_truth
+  ), class = c("pmtp_paper_scenario", "list"))
 }
 
 truncated_standard_variance <- function(bound = 3) {
@@ -115,10 +300,42 @@ rtruncnorm_vector <- function(mean, lower, upper) {
   n <- length(mean)
   if (length(lower) == 1L) lower <- rep(lower, n)
   if (length(upper) == 1L) upper <- rep(upper, n)
-  lower_probability <- stats::pnorm(lower, mean = mean)
-  upper_probability <- stats::pnorm(upper, mean = mean)
-  probability <- stats::runif(n, lower_probability, upper_probability)
-  stats::qnorm(probability, mean = mean)
+  standardized_lower <- lower - mean
+  standardized_upper <- upper - mean
+  draw <- numeric(n)
+
+  # Sampling from lower-tail CDFs is unstable when both limits round to one.
+  # For intervals entirely above the mean, sample the survival probability
+  # instead; pnorm(..., lower.tail = FALSE) remains accurate in that tail.
+  upper_tail <- standardized_lower > 0
+  if (any(upper_tail)) {
+    survival_lower <- stats::pnorm(
+      standardized_upper[upper_tail], lower.tail = FALSE
+    )
+    survival_upper <- stats::pnorm(
+      standardized_lower[upper_tail], lower.tail = FALSE
+    )
+    survival_probability <- stats::runif(
+      sum(upper_tail), survival_lower, survival_upper
+    )
+    draw[upper_tail] <- stats::qnorm(
+      survival_probability, lower.tail = FALSE
+    )
+  }
+  if (any(!upper_tail)) {
+    lower_probability <- stats::pnorm(standardized_lower[!upper_tail])
+    upper_probability <- stats::pnorm(standardized_upper[!upper_tail])
+    probability <- stats::runif(
+      sum(!upper_tail), lower_probability, upper_probability
+    )
+    draw[!upper_tail] <- stats::qnorm(probability)
+  }
+  value <- mean + draw
+  if (any(!is.finite(value))) {
+    stop("The truncated-normal sampler encountered non-finite tail bounds.",
+         call. = FALSE)
+  }
+  pmin(pmax(value, lower), upper)
 }
 
 #' Simulate the paper's proximal MTP data-generating process
@@ -184,6 +401,71 @@ simulate_pmtp_dgp <- function(n, spec = pmtp_dgp_spec(), seed = NULL) {
   attr(data, "sample_truth") <-
     mean(data$p_policy[data$target == 1])
   data
+}
+
+#' Evaluate an alternative policy on paper-DGP data
+#'
+#' Recomputes the latent counterfactual outcome probability for a supplied
+#' treatment-only or data-dependent policy. This is a simulation diagnostic:
+#' it uses the latent `U` column and is not an observed-data estimator.
+#'
+#' @param data Data generated by [simulate_pmtp_dgp()].
+#' @param policy A function of treatment, or a function of `data` and the
+#'   treatment column name.
+#' @param target Optional 0/1 target-population vector or column name. When
+#'   omitted, rows where the policy returns a finite value form the target.
+#' @param spec A specification created by [pmtp_dgp_spec()]. By default, uses
+#'   the specification attached to `data`.
+#'
+#' @return A list containing `qA`, `p_policy`, `target`, and `sample_truth`.
+#' @export
+pmtp_dgp_counterfactual <- function(
+    data, policy, target = NULL, spec = attr(data, "spec")) {
+  if (!is.data.frame(data)) stop("`data` must be a data frame.", call. = FALSE)
+  assert_columns(data, c("A", "L", "U", "W"), "paper-DGP data")
+  spec <- validate_dgp_spec(spec)
+  if (!is.function(policy)) stop("`policy` must be a function.", call. = FALSE)
+  q_a <- if (length(formals(policy)) == 1L) {
+    policy(data$A)
+  } else if (length(formals(policy)) == 2L) {
+    policy(data, "A")
+  } else {
+    stop("`policy` must take treatment, or data and treatment name.",
+         call. = FALSE)
+  }
+  if (!is.numeric(q_a) || length(q_a) != nrow(data)) {
+    stop("`policy` must return one numeric value per row.", call. = FALSE)
+  }
+  target_value <- if (is.null(target)) {
+    as.numeric(is.finite(q_a))
+  } else {
+    normalize_indicator(
+      resolve_vector_argument(data, target, "target"), "target"
+    )
+  }
+  inside <- target_value == 1
+  if (!any(inside)) stop("The target population is empty.", call. = FALSE)
+  if (any(!is.finite(q_a[inside]))) {
+    stop("The policy must be finite throughout the target population.",
+         call. = FALSE)
+  }
+  tolerance <- sqrt(.Machine$double.eps)
+  if (any(q_a[inside] < spec$c - tolerance | q_a[inside] > spec$d + tolerance)) {
+    stop("The policy leaves the treatment support on target rows.", call. = FALSE)
+  }
+
+  beta <- spec$beta
+  p_policy <- rep(NA_real_, nrow(data))
+  linear_predictor <- spec$mu + beta["beta9"] * data$L[inside] +
+    beta["beta10"] * data$U[inside] + beta["beta11"] * q_a[inside] +
+    beta["beta12"] * data$W[inside] + spec$gamma * q_a[inside]^2
+  p_policy[inside] <- stats::plogis(linear_predictor)
+  list(
+    qA = as.numeric(q_a),
+    p_policy = p_policy,
+    target = target_value,
+    sample_truth = mean(p_policy[inside])
+  )
 }
 
 #' Draw a two-phase sample from a simulated paper-DGP cohort
@@ -371,9 +653,13 @@ pmtp_parametric_g_value <- function(a, l, z, eta, spec) {
     stop("`eta` must contain four finite values.", call. = FALSE)
   }
   v <- pmtp_policy_v(a, spec)
-  base <- pmtp_policy_support(a, spec) +
+  upper_component <- if (spec$epsilon == 0) {
+    numeric(length(a))
+  } else {
     spec$delta / spec$epsilon *
       as.numeric(a > spec$d - spec$epsilon & a <= spec$d - spec$r * spec$epsilon)
+  }
+  base <- pmtp_policy_support(a, spec) + upper_component
   normalizer <- (stats::pnorm(3) - stats::pnorm(-3)) /
     (stats::pnorm(3 - eta[3] * v) - stats::pnorm(-3 - eta[3] * v))
   log_bridge <- (eta[1] * a + eta[2] * l + eta[3] * z + eta[4] * v) * v
