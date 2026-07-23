@@ -36,16 +36,19 @@ function of \code{data} and the treatment column name.}
 
 \item{weights}{Optional sampling-weight column name or numeric vector.}
 
-\item{target}{Optional target-population column name or 0/1 vector. Rows
-outside the target population are excluded before fitting.}
+\item{target}{Optional target-population column name or 0/1 vector. All
+complete rows are retained for nuisance estimation. The indicator
+restricts the shifted target distribution and final estimand.}
 
-\item{population_size}{Target-population phase-one size. Defaults to the sum
-of the analysis weights.}
+\item{population_size}{Full phase-one population size. Defaults to the sum
+of the complete-case analysis weights.}
 
 \item{estimators}{Any subset of \code{c("sdr", "tmle")}.}
 
 \item{engine}{\code{"auto"}, \code{"lmtp"}, or \code{"weighted_point"}. Auto uses \code{lmtp}
-without sampling weights and the audited point-treatment engine otherwise.}
+only for unweighted, unrestricted targets and the audited point-treatment
+engine otherwise. The \code{lmtp} engine cannot implement a restricted target
+while fitting nuisances on the full data.}
 
 \item{folds}{Number of outer cross-fitting folds.}
 

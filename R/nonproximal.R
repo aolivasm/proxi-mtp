@@ -34,7 +34,7 @@ validate_nonproximal_learners <- function(learners, name) {
   unique(learners)
 }
 
-evaluate_nonproximal_policy <- function(policy, data, treatment) {
+evaluate_nonproximal_policy <- function(policy, data, treatment, target = NULL) {
   if (!is.function(policy)) stop("`policy` must be a function.", call. = FALSE)
   arguments <- formals(policy)
   value <- if (length(arguments) == 1L && !"..." %in% names(arguments)) {
@@ -42,10 +42,20 @@ evaluate_nonproximal_policy <- function(policy, data, treatment) {
   } else {
     policy(data, treatment)
   }
-  if (!is.numeric(value) || length(value) != nrow(data) || anyNA(value) ||
-      any(!is.finite(value))) {
-    stop("`policy` must return one finite numeric value per analysis row.",
+  if (!is.numeric(value) || length(value) != nrow(data)) {
+    stop("`policy` must return one numeric value per analysis row.",
          call. = FALSE)
+  }
+  nonfinite <- !is.finite(value)
+  if (any(nonfinite)) {
+    outside_target <- !is.null(target) & target == 0
+    if (any(nonfinite & !outside_target)) {
+      stop("`policy` must return finite values on all target-population rows.",
+           call. = FALSE)
+    }
+    # A total identity extension is neutral outside a restricted target and
+    # lets the full-data outcome regression be evaluated consistently.
+    value[nonfinite] <- data[[treatment]][nonfinite]
   }
   as.numeric(value)
 }
@@ -60,8 +70,11 @@ nonproximal_analysis_data <- function(data, treatment, outcome, covariates,
   complete <- stats::complete.cases(
     data[c(treatment, outcome, covariates)], weight, target_value
   )
-  keep <- complete & target_value == 1
+  keep <- complete
   if (sum(keep) < 20L) {
+    stop("At least 20 complete analysis rows are required.", call. = FALSE)
+  }
+  if (sum(target_value[keep]) < 20L) {
     stop("At least 20 complete target-population rows are required.",
          call. = FALSE)
   }
@@ -75,7 +88,13 @@ nonproximal_analysis_data <- function(data, treatment, outcome, covariates,
   }
   weight <- as.numeric(weight[keep])
   assert_positive(weight, "weights")
-  list(data = analysis, weights = weight, complete = complete, keep = keep)
+  list(
+    data = analysis,
+    weights = weight,
+    target = as.numeric(target_value[keep]),
+    complete = complete,
+    keep = keep
+  )
 }
 
 fit_pmtp_superlearner <- function(y, x, weights, ids, learners,
@@ -142,13 +161,16 @@ make_nonproximal_features <- function(data, treatment, covariates, shifted = NUL
 }
 
 fit_weighted_point_nonproximal <- function(
-    data, treatment, outcome, covariates, policy, weights,
+    data, treatment, outcome, covariates, policy, weights, target,
     estimators, folds, learner_folds, learners_outcome,
     learners_treatment, probability_bounds, population_size, seed,
     return_fits) {
   n <- nrow(data)
-  fold_id <- make_folds(data[[treatment]], data[[outcome]], folds, seed)
-  q_all <- evaluate_nonproximal_policy(policy, data, treatment)
+  # Stratifying jointly on target membership and outcome keeps the restricted
+  # target represented in every outer training sample.
+  fold_stratum <- 2 * target + data[[outcome]]
+  fold_id <- make_folds(data[[treatment]], fold_stratum, folds, seed)
+  q_all <- evaluate_nonproximal_policy(policy, data, treatment, target)
   q_natural <- q_shifted <- density_ratio <- rep(NA_real_, n)
   q_natural_tmle <- q_shifted_tmle <- rep(NA_real_, n)
   tmle_epsilon <- NA_real_
@@ -178,10 +200,29 @@ fit_weighted_point_nonproximal <- function(
     q0_valid <- predict_pmtp_superlearner(outcome_fit, x_valid)
     q1_valid <- predict_pmtp_superlearner(outcome_fit, x_valid_shifted)
 
-    stacked_x <- rbind(x_train, x_train_shifted)
-    stacked_y <- rep(c(0, 1), each = length(training))
-    stacked_weights <- rep(weights[training], 2L)
-    stacked_ids <- rep(training, 2L)
+    target_training <- which(target[training] == 1)
+    shifted_training <- training[target_training]
+    if (!length(shifted_training)) {
+      stop("An outer training fold contained no target-population rows.",
+           call. = FALSE)
+    }
+    # Class 0 represents the full natural-treatment distribution, whereas
+    # class 1 represents the unnormalised target-restricted shifted
+    # distribution. The posterior odds therefore estimate the Radon--Nikodym
+    # derivative needed by the target-specific residual term.
+    stacked_x <- rbind(
+      x_train,
+      x_train_shifted[target_training, , drop = FALSE]
+    )
+    stacked_y <- c(
+      rep.int(0, length(training)),
+      rep.int(1, length(shifted_training))
+    )
+    stacked_weights <- c(
+      weights[training],
+      weights[shifted_training]
+    )
+    stacked_ids <- c(training, shifted_training)
     treatment_fit <- fit_pmtp_superlearner(
       y = stacked_y, x = stacked_x, weights = stacked_weights,
       ids = stacked_ids, learners = learners_treatment,
@@ -232,11 +273,12 @@ fit_weighted_point_nonproximal <- function(
   results <- list()
   influence <- list()
   y <- data[[outcome]]
-  target_probability <- sum(weights) / population_size
+  denominator <- sum(weights * target)
+  target_probability <- denominator / population_size
   if ("sdr" %in% estimators) {
-    pseudo <- q_shifted + density_ratio * (y - q_natural)
-    estimate <- weighted_mean(pseudo, weights)
-    centered <- (pseudo - estimate) / target_probability
+    pseudo <- target * q_shifted + density_ratio * (y - q_natural)
+    estimate <- sum(weights * pseudo) / denominator
+    centered <- (pseudo - target * estimate) / target_probability
     results[["sdr"]] <- c(
       estimate = estimate,
       std_error = sqrt(sum((weights * centered)^2)) / population_size
@@ -244,10 +286,10 @@ fit_weighted_point_nonproximal <- function(
     influence[["sdr"]] <- centered
   }
   if ("tmle" %in% estimators) {
-    estimate <- weighted_mean(q_shifted_tmle, weights)
-    pseudo <- q_shifted_tmle +
+    estimate <- sum(weights * target * q_shifted_tmle) / denominator
+    pseudo <- target * q_shifted_tmle +
       density_ratio * (y - q_natural_tmle)
-    centered <- (pseudo - estimate) / target_probability
+    centered <- (pseudo - target * estimate) / target_probability
     results[["tmle"]] <- c(
       estimate = estimate,
       std_error = sqrt(sum((weights * centered)^2)) / population_size
@@ -334,13 +376,16 @@ fit_lmtp_nonproximal <- function(
 #' @param policy A vectorized function of treatment, or an `lmtp`-style
 #'   function of `data` and the treatment column name.
 #' @param weights Optional sampling-weight column name or numeric vector.
-#' @param target Optional target-population column name or 0/1 vector. Rows
-#'   outside the target population are excluded before fitting.
-#' @param population_size Target-population phase-one size. Defaults to the sum
-#'   of the analysis weights.
+#' @param target Optional target-population column name or 0/1 vector. All
+#'   complete rows are retained for nuisance estimation. The indicator
+#'   restricts the shifted target distribution and final estimand.
+#' @param population_size Full phase-one population size. Defaults to the sum
+#'   of the complete-case analysis weights.
 #' @param estimators Any subset of `c("sdr", "tmle")`.
 #' @param engine `"auto"`, `"lmtp"`, or `"weighted_point"`. Auto uses `lmtp`
-#'   without sampling weights and the audited point-treatment engine otherwise.
+#'   only for unweighted, unrestricted targets and the audited point-treatment
+#'   engine otherwise. The `lmtp` engine cannot implement a restricted target
+#'   while fitting nuisances on the full data.
 #' @param folds Number of outer cross-fitting folds.
 #' @param learner_folds Number of internal SuperLearner folds.
 #' @param learners_outcome,learners_treatment SuperLearner libraries. With
@@ -377,7 +422,11 @@ pmtp_nonproximal <- function(
   estimators <- match.arg(estimators, c("sdr", "tmle"), several.ok = TRUE)
   estimators <- unique(estimators)
   if (engine == "auto") {
-    engine <- if (is.null(weights)) "lmtp" else "weighted_point"
+    engine <- if (is.null(weights) && is.null(target)) {
+      "lmtp"
+    } else {
+      "weighted_point"
+    }
   }
   weighted_engine <- identical(engine, "weighted_point")
   if (is.null(learners_outcome)) {
@@ -425,6 +474,13 @@ pmtp_nonproximal <- function(
     stop("`population_size` must be a single positive number.", call. = FALSE)
   }
   if (engine == "lmtp") {
+    if (any(analysis$target != 1)) {
+      stop(
+        "The `lmtp` engine cannot fit a restricted target with full-data ",
+        "nuisance estimation; use `engine = \"weighted_point\"`.",
+        call. = FALSE
+      )
+    }
     if (!requireNamespace("lmtp", quietly = TRUE)) {
       stop("Package `lmtp` is required for `engine = \"lmtp\"`.",
            call. = FALSE)
@@ -447,7 +503,7 @@ pmtp_nonproximal <- function(
   } else {
     result <- fit_weighted_point_nonproximal(
       analysis$data, treatment, outcome, covariates, policy,
-      analysis$weights, estimators, folds, learner_folds,
+      analysis$weights, analysis$target, estimators, folds, learner_folds,
       learners_outcome, learners_treatment, probability_bounds,
       population_size, seed, return_fits
     )
@@ -458,8 +514,12 @@ pmtp_nonproximal <- function(
     engine = engine,
     weighting = weighting,
     n_sample = nrow(analysis$data),
+    n_target = as.integer(sum(analysis$target)),
     population_size = population_size,
     weights = analysis$weights,
+    target = analysis$target,
+    target_probability = sum(analysis$weights * analysis$target) /
+      population_size,
     estimators = estimators,
     learners_outcome = learners_outcome,
     learners_treatment = learners_treatment,
@@ -475,6 +535,9 @@ print.pmtp_nonproximal_fit <- function(x, ...) {
   cat("Engine:", x$engine, "\n")
   cat("Weighting:", x$weighting, "\n")
   cat("Analysis rows:", x$n_sample, "\n\n")
+  if (x$n_target < x$n_sample) {
+    cat("Target rows:", x$n_target, "\n\n")
+  }
   print(x$estimates, row.names = FALSE)
   invisible(x)
 }

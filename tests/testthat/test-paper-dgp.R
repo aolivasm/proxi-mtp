@@ -99,6 +99,9 @@ test_that("C.7 restricted policy is finite for core estimation", {
   )
 
   expect_true(is.finite(fit$estimates$estimate[1L]))
+  expect_identical(fit$n_sample, nrow(data))
+  expect_identical(length(fit$nuisance$h0), nrow(data))
+  expect_identical(length(fit$nuisance$g0[, 1L]), nrow(data))
   expect_gt(fit$target_probability, 0)
   expect_lt(fit$target_probability, 1)
 })

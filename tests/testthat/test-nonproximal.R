@@ -99,7 +99,7 @@ test_that("weighted comparator supports restricted and data-dependent policies",
     policy = function(a) pmtp_taper_policy(a, restricted_spec),
     weights = "ipw",
     target = "target",
-    population_size = sum(restricted_phase_one$target),
+    population_size = nrow(restricted_phase_one),
     engine = "weighted_point",
     folds = 2,
     learner_folds = 2,
@@ -110,11 +110,25 @@ test_that("weighted comparator supports restricted and data-dependent policies",
 
   expect_identical(
     restricted_fit$n_sample,
+    nrow(restricted_sample)
+  )
+  expect_identical(
+    restricted_fit$n_target,
     sum(restricted_sample$target == 1)
   )
   expect_equal(
     restricted_fit$population_size,
-    sum(restricted_phase_one$target)
+    nrow(restricted_phase_one)
+  )
+  expect_equal(
+    restricted_fit$target_probability,
+    sum(restricted_sample$ipw * restricted_sample$target) /
+      nrow(restricted_phase_one)
+  )
+  expect_length(restricted_fit$fold_id, nrow(restricted_sample))
+  expect_length(
+    restricted_fit$predictions$outcome_natural,
+    nrow(restricted_sample)
   )
   expect_true(all(is.finite(unlist(
     restricted_fit$estimates[c("estimate", "std_error")]
@@ -141,6 +155,43 @@ test_that("weighted comparator supports restricted and data-dependent policies",
 
   expect_true(all(is.finite(covariate_fit$predictions$density_ratio)))
   expect_true(all(is.finite(covariate_fit$estimates$estimate)))
+})
+
+test_that("auto selects full-data engine for a restricted target", {
+  skip_if_not_installed("SuperLearner")
+  spec <- pmtp_dgp_spec(epsilon = 0, r = 1)
+  data <- simulate_pmtp_dgp(120, spec, seed = 426)
+  policy <- pmtp_paper_scenario("c7")$policy
+
+  fit <- pmtp_nonproximal(
+    data,
+    policy = policy,
+    target = "target",
+    engine = "auto",
+    folds = 2,
+    learner_folds = 2,
+    learners_outcome = c("SL.glm", "SL.mean"),
+    estimators = "sdr",
+    seed = 427
+  )
+
+  expect_identical(fit$engine, "weighted_point")
+  expect_identical(fit$n_sample, nrow(data))
+  expect_equal(fit$n_target, sum(data$target))
+  expect_error(
+    pmtp_nonproximal(
+      data,
+      policy = policy,
+      target = "target",
+      engine = "lmtp",
+      folds = 2,
+      learner_folds = 2,
+      learners_outcome = c("SL.glm", "SL.mean"),
+      estimators = "sdr",
+      seed = 428
+    ),
+    "cannot fit a restricted target"
+  )
 })
 
 test_that("non-proximal comparator runs under direct proxy effects", {
