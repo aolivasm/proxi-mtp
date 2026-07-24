@@ -236,4 +236,195 @@ test_that("parametric estimating equations solve on the paper DGP", {
   expect_true(all(fit$converged))
   expect_lt(max(fit$residual_norm), 1e-6)
   expect_true(all(is.finite(coef(fit))))
+  expect_true(all(is.finite(fit$standard_error)))
+  expect_true(all(fit$standard_error > 0))
+  expect_equal(
+    unname(diag(vcov(fit))),
+    unname(fit$standard_error^2),
+    tolerance = 1e-12
+  )
+  expect_equal(
+    vcov(fit),
+    crossprod(fit$weights * fit$influence_function) /
+      fit$population_size^2,
+    tolerance = 1e-12
+  )
+  expect_equal(fit$inference$jacobian_rank, 12L)
+  expect_lt(
+    max(abs(colSums(fit$weights * fit$influence_function) /
+      fit$population_size)),
+    1e-5
+  )
+
+  interval <- summary(fit, conf_level = 0.90)
+  expect_equal(interval$estimate, unname(coef(fit)))
+  expect_equal(interval$std_error, unname(fit$standard_error))
+  expect_true(all(interval$conf_low < interval$conf_high))
+})
+
+test_that("parametric outcome-bridge derivatives include the multiplier term", {
+  spec <- pmtp_dgp_spec()
+  parameters <- pmtp_analytic_bridge_parameters(spec)
+  data <- simulate_pmtp_dgp(40, spec, seed = 20260724)
+  phi <- parameters$phi
+  truncated_variance <- parameters$truncated_variance
+
+  linear_predictor <- phi[1] + phi[2] * data$A + phi[3] * data$L +
+    phi[4] * data$W + phi[5] * data$A^2
+  probability <- stats::plogis(linear_predictor)
+  multiplier <- 1 + truncated_variance * phi[4]^2 / 2
+  expected <- multiplier * probability * (1 - probability) *
+    cbind(1, data$A, data$L, data$W, data$A^2)
+  expected[, 4] <- expected[, 4] +
+    truncated_variance * phi[4] * probability
+
+  numerical <- finite_difference_jacobian(
+    function(candidate) {
+      pmtp_parametric_h_value(
+        data$A, data$L, data$W, candidate, truncated_variance
+      )
+    },
+    phi
+  )
+
+  expect_equal(unname(numerical), unname(expected), tolerance = 1e-7)
+})
+
+test_that("parametric treatment-bridge derivatives include normalization", {
+  spec <- pmtp_dgp_spec()
+  parameters <- pmtp_analytic_bridge_parameters(spec)
+  data <- simulate_pmtp_dgp(60, spec, seed = 20260725)
+  eta <- parameters$eta
+  policy_v <- pmtp_policy_v(data$A, spec)
+  bridge <- pmtp_parametric_g_value(
+    data$A, data$L, data$Z, eta, spec
+  )
+  denominator <- stats::pnorm(3 - eta[3] * policy_v) -
+    stats::pnorm(-3 - eta[3] * policy_v)
+  normalizer_derivative <- policy_v * (
+    stats::dnorm(3 - eta[3] * policy_v) -
+      stats::dnorm(-3 - eta[3] * policy_v)
+  ) / denominator
+  expected <- bridge * cbind(
+    data$A * policy_v,
+    data$L * policy_v,
+    data$Z * policy_v + normalizer_derivative,
+    policy_v^2
+  )
+
+  numerical <- finite_difference_jacobian(
+    function(candidate) {
+      pmtp_parametric_g_value(
+        data$A, data$L, data$Z, candidate, spec
+      )
+    },
+    eta
+  )
+
+  expect_equal(unname(numerical), unname(expected), tolerance = 1e-6)
+})
+
+test_that("parametric solver labels a finite minimum-distance solution", {
+  solution <- solve_bridge_moments(
+    function(theta) theta^2 + 1,
+    starts = list(0.5, -0.5),
+    max_iterations = 100L,
+    jacobian_function = function(theta) matrix(2 * theta, 1L, 1L)
+  )
+
+  expect_true(solution$converged)
+  expect_identical(solution$solution_type, "minimum_distance")
+  expect_equal(solution$coefficients, 0, tolerance = 1e-5)
+  expect_equal(solution$residual_norm, 1, tolerance = 1e-8)
+  expect_lt(solution$stationarity_norm, 1e-6)
+})
+
+test_that("parametric suite shares the four supplement bridge fits", {
+  spec <- pmtp_dgp_spec()
+  data <- simulate_pmtp_dgp(500, spec, seed = 20260726)
+  standalone <- pmtp_parametric(data, spec)
+  suite <- pmtp_parametric_suite(data, spec)
+
+  expect_identical(
+    names(coef(suite)),
+    c(
+      "OR_h_correct", "OR_h_misspecified",
+      "DQW_g_correct", "DQW_g_misspecified",
+      "DR_h_correct_g_correct", "DR_h_correct_g_misspecified",
+      "DR_h_misspecified_g_correct",
+      "DR_h_misspecified_g_misspecified"
+    )
+  )
+  expect_true(all(suite$converged))
+  expect_lt(max(suite$residual_norm), 1e-6)
+  expect_length(suite$bridge_solutions$h$correct$coefficients, 5L)
+  expect_length(suite$bridge_solutions$h$misspecified$coefficients, 4L)
+  expect_length(suite$bridge_solutions$g$correct$coefficients, 4L)
+  expect_length(suite$bridge_solutions$g$misspecified$coefficients, 4L)
+  expect_equal(
+    unname(standalone$estimates),
+    unname(coef(suite)[c(
+      "OR_h_correct", "DQW_g_correct", "DR_h_correct_g_correct"
+    )]),
+    tolerance = 1e-9
+  )
+  expect_equal(
+    unname(standalone$standard_error),
+    unname(suite$standard_error[c(
+      "OR_h_correct", "DQW_g_correct", "DR_h_correct_g_correct"
+    )]),
+    tolerance = 1e-9
+  )
+  expect_true(all(is.finite(suite$standard_error)))
+  expect_true(all(suite$standard_error > 0))
+  expect_equal(
+    vcov(suite),
+    crossprod(suite$weights * suite$influence_function) /
+      suite$population_size^2,
+    tolerance = 1e-12
+  )
+  expect_equal(
+    unname(diag(vcov(suite))),
+    unname(suite$standard_error^2),
+    tolerance = 1e-12
+  )
+})
+
+test_that("individual misspecified parametric models match suite components", {
+  spec <- pmtp_dgp_spec()
+  data <- simulate_pmtp_dgp(400, spec, seed = 20260727)
+  suite <- pmtp_parametric_suite(data, spec)
+  h_misspecified <- pmtp_parametric(
+    data, spec,
+    outcome_model = "omit_quadratic",
+    treatment_model = "correct"
+  )
+  g_misspecified <- pmtp_parametric(
+    data, spec,
+    outcome_model = "correct",
+    treatment_model = "constant_v"
+  )
+
+  expect_equal(
+    h_misspecified$estimates[c("OR", "DR")],
+    setNames(
+      coef(suite)[c(
+        "OR_h_misspecified", "DR_h_misspecified_g_correct"
+      )],
+      c("OR", "DR")
+    ),
+    tolerance = 1e-9
+  )
+  expect_equal(
+    g_misspecified$estimates[c("DQW", "DR")],
+    setNames(
+      coef(suite)[c(
+        "DQW_g_misspecified", "DR_h_correct_g_misspecified"
+      )],
+      c("DQW", "DR")
+    ),
+    tolerance = 1e-9
+  )
+  expect_identical(h_misspecified$models$outcome, "omit_quadratic")
+  expect_identical(g_misspecified$models$treatment, "constant_v")
 })

@@ -8,9 +8,12 @@ pmtp_parametric(
   data,
   spec = pmtp_dgp_spec(),
   weights = NULL,
+  population_size = NULL,
   start_h = NULL,
   start_g = NULL,
-  max_iterations = 500L
+  max_iterations = 500L,
+  outcome_model = c("correct", "omit_quadratic"),
+  treatment_model = c("correct", "constant_v")
 )
 }
 \arguments{
@@ -23,21 +26,36 @@ policy parameters are used by the estimating equations.}
 \item{weights}{Optional positive observation weights or the name of a column
 in \code{data} containing them.}
 
+\item{population_size}{Full phase-one population size. By default, uses the
+sum of the analysis weights. Supplying the known population size is
+recommended with inverse two-phase sampling weights.}
+
 \item{start_h, start_g}{Optional starting coefficients for the outcome and
 treatment bridge estimating equations.}
 
 \item{max_iterations}{Maximum iterations for each numerical solver.}
+
+\item{outcome_model}{Outcome-bridge specification. \code{"correct"} includes the
+quadratic treatment term; \code{"omit_quadratic"} is the misspecified model
+used in Supplement C.3.}
+
+\item{treatment_model}{Treatment-bridge specification. \code{"correct"} includes
+\code{eta_3 * V(a)} inside the exponential's linear predictor;
+\code{"constant_v"} replaces that term with the constant \code{eta_3}, as in the
+supplement's misspecified model.}
 }
 \value{
 An object of class \code{pmtp_parametric_fit} containing estimates,
-coefficients, moment residuals, convergence information, and nuisance
-values.
+influence-function standard errors and covariance, coefficients, moment
+residuals, convergence information, and nuisance values.
 }
 \description{
-Solves the estimating equations in Supplement C.3 and returns the proximal
+Fits the estimating equations in Supplement C.3 and returns the proximal
 outcome-regression, density-quotient-weighted, and doubly robust point
-estimates. This function currently provides point-estimation diagnostics;
-influence-function standard errors for estimated parametric nuisances will
-be added after the estimating equations have been validated against the
-paper DGP.
+estimates. An exact finite-sample root is used when available. Otherwise,
+the bridge fit is the minimum-distance minimizer of the squared empirical
+moments. Standard errors use the corresponding stacked influence function,
+jointly accounting for bridge estimation and the target population
+denominator. With inverse two-phase sampling weights, the covariance uses
+squared inverse weights and the supplied phase-one population size.
 }
