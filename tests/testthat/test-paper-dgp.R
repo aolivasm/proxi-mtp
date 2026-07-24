@@ -75,6 +75,14 @@ test_that("paper scenario helper centralizes policies, support, and truths", {
     pmtp_paper_scenario("c8", beta_z = 0.5, beta_w = -0.5)$truth,
     0.2487874399
   )
+  expect_equal(
+    pmtp_paper_scenario("c8", beta_z = 2, beta_w = -0.5)$truth,
+    0.2564580611
+  )
+  expect_equal(
+    pmtp_paper_scenario("c8", beta_z = 0.5, beta_w = -2)$truth,
+    0.2135172919
+  )
   expect_error(
     pmtp_paper_scenario("c8", beta_z = 0.6, beta_w = -0.6),
     "supply `truth`"
@@ -337,6 +345,30 @@ test_that("parametric solver labels a finite minimum-distance solution", {
   expect_equal(solution$coefficients, 0, tolerance = 1e-5)
   expect_equal(solution$residual_norm, 1, tolerance = 1e-8)
   expect_lt(solution$stationarity_norm, 1e-6)
+})
+
+test_that("case-2 parametric fits do not reuse case-1 calibrated starts", {
+  spec <- pmtp_dgp_spec(
+    beta_z = 2, beta_w = -2,
+    beta8 = 0.3, beta12 = -0.3
+  )
+  fallback_h <- seq_len(5)
+  fallback_g <- seq_len(4)
+
+  expect_equal(
+    paper_parametric_start_h(spec, fallback_h),
+    fallback_h
+  )
+  expect_equal(
+    paper_parametric_start_g_misspecified(spec, fallback_g),
+    fallback_g
+  )
+
+  data <- simulate_pmtp_dgp(750, spec, seed = 20300724)
+  fit <- pmtp_parametric(data, spec)
+  expect_true(all(fit$converged))
+  expect_true(all(is.finite(fit$standard_error)))
+  expect_true(all(fit$standard_error > 0))
 })
 
 test_that("parametric suite shares the four supplement bridge fits", {

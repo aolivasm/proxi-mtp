@@ -793,6 +793,10 @@ assemble_parametric_fit <- function(
 }
 
 paper_parametric_start_h <- function(spec, fallback) {
+  if (abs(unname(spec$beta[["beta8"]])) > 1e-12 ||
+      abs(unname(spec$beta[["beta12"]])) > 1e-12) {
+    return(fallback)
+  }
   calibrated <- rbind(
     `-2` = c(
       -1.19960935243, -1.48333752394, 0.237030425319,
@@ -818,6 +822,9 @@ paper_parametric_start_h <- function(spec, fallback) {
 }
 
 paper_parametric_start_g_misspecified <- function(spec, fallback) {
+  if (abs(unname(spec$beta[["beta8"]])) > 1e-12) {
+    return(fallback)
+  }
   calibrated <- rbind(
     `2` = c(0.41516779, -0.077018686, -0.20322019, -0.099837796),
     `1` = c(0.42167649, -0.036646768, -0.40508250, -0.158808250),
