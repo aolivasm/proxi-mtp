@@ -389,14 +389,23 @@ solve_bridge_moments <- function(
   root_tolerance <- 1e-8
   stationarity_tolerance <- 1e-6
   add_candidate <- function(coefficients, method, convergence) {
-    moments <- tryCatch(moment_function(coefficients), error = function(e) rep(Inf, length(coefficients)))
-    if (length(moments) == length(coefficients) && all(is.finite(moments))) {
+    moments <- tryCatch(
+      moment_function(coefficients),
+      error = function(e) rep(Inf, length(coefficients))
+    )
+    if (length(moments) >= length(coefficients) &&
+        all(is.finite(moments))) {
       stationarity <- if (is.null(jacobian_function)) {
         rep(NA_real_, length(coefficients))
       } else {
         jacobian <- tryCatch(
           jacobian_function(coefficients),
-          error = function(e) matrix(NA_real_, length(coefficients), length(coefficients))
+          error = function(e) {
+            matrix(
+              NA_real_, nrow = length(moments),
+              ncol = length(coefficients)
+            )
+          }
         )
         if (all(is.finite(jacobian))) {
           drop(crossprod(jacobian, moments))
@@ -416,6 +425,12 @@ solve_bridge_moments <- function(
   }
 
   try_root <- function(start, method, label) {
+    start_moments <- tryCatch(
+      moment_function(start), error = function(e) numeric()
+    )
+    if (length(start_moments) != length(start)) {
+      return(invisible(NULL))
+    }
     root <- tryCatch(
       nleqslv::nleqslv(
         start,
