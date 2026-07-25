@@ -41,6 +41,37 @@ test_that("full-rank Nyström features reconstruct the Gaussian kernel", {
   )
 })
 
+test_that("full-rank Nyström features reconstruct the Matérn kernel", {
+  set.seed(122)
+  arguments <- matrix(stats::rnorm(72), 24L, 3L)
+  control <- pmtp_control_fixed(
+    kernel_approximation = "nystrom",
+    nystrom_rank = function(n) n
+  )
+  feature_map <- proximtp:::fit_nystrom_map(
+    arguments,
+    sigma2 = 1.3,
+    weights = rep(1, nrow(arguments)),
+    control = control,
+    kernel_family = "matern_sobolev",
+    matern_smoothness = 2
+  )
+
+  expect_identical(feature_map$kernel_family, "matern_sobolev")
+  expect_equal(
+    tcrossprod(feature_map$training_features),
+    matern_kernel(arguments, sigma2 = 1.3, smoothness = 2),
+    tolerance = 1e-10
+  )
+  expect_equal(
+    proximtp:::predict_nystrom_features(
+      feature_map, arguments
+    ),
+    feature_map$training_features,
+    tolerance = 1e-10
+  )
+})
+
 test_that("full-rank Nyström reproduces both bridge fits and risks", {
   set.seed(121)
   n <- 24L
