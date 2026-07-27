@@ -66,7 +66,8 @@ evaluate_outcome_nystrom_grid <- function(
         actual_inner_lambda(
           grid$inner_lambda_scale[first], n_training,
           dimension = ncol(prepared$train$g),
-          rule = control$critical_radius_rule
+          rule = control$critical_radius_rule,
+          sobolev_l = control$sobolev_l %||% 4
         ),
         control
       ),
@@ -80,7 +81,8 @@ evaluate_outcome_nystrom_grid <- function(
           lambda_h = actual_outer_lambda(
             grid$outer_lambda_scale[candidate], n_training,
             dimension = ncol(prepared$train$h),
-            rule = control$critical_radius_rule
+            rule = control$critical_radius_rule,
+            sobolev_l = control$sobolev_l %||% 4
           ),
           sigma2_h = base_h * grid$outer_bandwidth_scale[candidate],
           sigma2_gp = base_gp * grid$inner_bandwidth_scale[candidate],
@@ -129,7 +131,8 @@ evaluate_treatment_nystrom_grid <- function(
         actual_inner_lambda(
           grid$inner_lambda_scale[first], n_training,
           dimension = ncol(prepared$train$h),
-          rule = control$critical_radius_rule
+          rule = control$critical_radius_rule,
+          sobolev_l = control$sobolev_l %||% 4
         ),
         control
       ),
@@ -143,7 +146,8 @@ evaluate_treatment_nystrom_grid <- function(
           lambda_g = actual_outer_lambda(
             grid$outer_lambda_scale[candidate], n_training,
             dimension = ncol(prepared$train$g),
-            rule = control$critical_radius_rule
+            rule = control$critical_radius_rule,
+            sobolev_l = control$sobolev_l %||% 4
           ),
           sigma2_g = base_g * grid$outer_bandwidth_scale[candidate],
           sigma2_hp = base_hp * grid$inner_bandwidth_scale[candidate],
@@ -365,7 +369,8 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
       control$risk_penalty,
       n_validation,
       dimension = ncol(prepared$validation$g),
-      rule = control$critical_radius_rule
+      rule = control$critical_radius_rule,
+      sobolev_l = control$sobolev_l %||% 4
     )
     feature_cache <- NULL
     if (use_nystrom_feature_cache(control)) {
@@ -436,12 +441,14 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
           lambda_h = actual_outer_lambda(
             grid$outer_lambda_scale[candidate], n_training,
             dimension = ncol(prepared$train$h),
-            rule = control$critical_radius_rule
+            rule = control$critical_radius_rule,
+            sobolev_l = control$sobolev_l %||% 4
           ),
           lambda_gp = actual_inner_lambda(
             grid$inner_lambda_scale[candidate], n_training,
             dimension = ncol(prepared$train$g),
-            rule = control$critical_radius_rule
+            rule = control$critical_radius_rule,
+            sobolev_l = control$sobolev_l %||% 4
           ),
           sigma2_h = base_h * grid$outer_bandwidth_scale[candidate],
           sigma2_gp = base_gp * grid$inner_bandwidth_scale[candidate],
@@ -513,7 +520,8 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
       control$risk_penalty,
       n_validation,
       dimension = ncol(prepared$validation$h),
-      rule = control$critical_radius_rule
+      rule = control$critical_radius_rule,
+      sobolev_l = control$sobolev_l %||% 4
     )
     feature_cache <- NULL
     if (use_nystrom_feature_cache(control)) {
@@ -603,12 +611,14 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
           lambda_g = actual_outer_lambda(
             grid$outer_lambda_scale[candidate], n_training,
             dimension = ncol(prepared$train$g),
-            rule = control$critical_radius_rule
+            rule = control$critical_radius_rule,
+            sobolev_l = control$sobolev_l %||% 4
           ),
           lambda_hp = actual_inner_lambda(
             grid$inner_lambda_scale[candidate], n_training,
             dimension = ncol(prepared$train$h),
-            rule = control$critical_radius_rule
+            rule = control$critical_radius_rule,
+            sobolev_l = control$sobolev_l %||% 4
           ),
           sigma2_g = base_g * grid$outer_bandwidth_scale[candidate],
           sigma2_hp = base_hp * grid$inner_bandwidth_scale[candidate],
@@ -670,12 +680,14 @@ fit_selected_outcome <- function(dat, training, validation, tuning, control) {
     lambda_h = actual_outer_lambda(
       tuning$outer_lambda_scale, n_training,
       dimension = ncol(prepared$train$h),
-      rule = control$critical_radius_rule
+      rule = control$critical_radius_rule,
+      sobolev_l = control$sobolev_l %||% 4
     ),
     lambda_gp = actual_inner_lambda(
       tuning$inner_lambda_scale, n_training,
       dimension = ncol(prepared$train$g),
-      rule = control$critical_radius_rule
+      rule = control$critical_radius_rule,
+      sobolev_l = control$sobolev_l %||% 4
     ),
     sigma2_h = base_h * tuning$outer_bandwidth_scale,
     sigma2_gp = base_gp * tuning$inner_bandwidth_scale,
@@ -709,12 +721,14 @@ fit_selected_treatment <- function(dat, training, validation, policy_index,
     lambda_g = actual_outer_lambda(
       tuning$outer_lambda_scale, n_training,
       dimension = ncol(prepared$train$g),
-      rule = control$critical_radius_rule
+      rule = control$critical_radius_rule,
+      sobolev_l = control$sobolev_l %||% 4
     ),
     lambda_hp = actual_inner_lambda(
       tuning$inner_lambda_scale, n_training,
       dimension = ncol(prepared$train$h),
-      rule = control$critical_radius_rule
+      rule = control$critical_radius_rule,
+      sobolev_l = control$sobolev_l %||% 4
     ),
     sigma2_g = base_g * tuning$outer_bandwidth_scale,
     sigma2_hp = base_hp * tuning$inner_bandwidth_scale,

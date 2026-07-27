@@ -65,6 +65,13 @@
 #'   bandwidths and inner penalty. This changes only computation, not
 #'   landmarks, risks, or fitted estimators. It is ignored by the exact
 #'   backend.
+#' @param kernel_family RKHS kernel family. `"gaussian"` uses the Gaussian RBF
+#'   kernel. `"matern_sobolev"` uses a Matérn kernel whose native space is
+#'   equivalent to a Sobolev space.
+#' @param matern_smoothness Positive Matérn smoothness parameter.
+#' @param sobolev_l Positive spectral-order parameter used by the
+#'   `"matern_sobolev"` critical-radius rule. It equals twice
+#'   `matern_smoothness`.
 #'
 #' @return A list of class `pmtp_control`.
 #' @export
@@ -82,7 +89,9 @@ pmtp_control <- function(
     bandwidth_hp = 1 / 4,
     risk_bandwidth = 1 / 4,
     risk_penalty = 1,
-    critical_radius_rule = c("legacy_d1", "gaussian_dimension"),
+    critical_radius_rule = c(
+      "legacy_d1", "gaussian_dimension", "matern_sobolev"
+    ),
     max_norm_h = 50,
     max_norm_g = 50,
     seed = 1234L,
@@ -97,12 +106,16 @@ pmtp_control <- function(
     kernel_approximation = c("exact", "nystrom"),
     nystrom_rank = pmtp_nystrom_rank(),
     nystrom_landmarks = c("uniform", "weighted"),
-    cache_kernel_features = TRUE) {
+    cache_kernel_features = TRUE,
+    kernel_family = c("gaussian", "matern_sobolev"),
+    matern_smoothness = 2,
+    sobolev_l = 4) {
   assert_flag(tune, "tune")
   selection_rule <- match.arg(selection_rule)
   critical_radius_rule <- match.arg(critical_radius_rule)
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
+  kernel_family <- match.arg(kernel_family)
   if (length(inner_repeats) != 1L || is.na(inner_repeats) ||
       inner_repeats < 1L || inner_repeats != as.integer(inner_repeats)) {
     stop("`inner_repeats` must be a positive integer.", call. = FALSE)
@@ -130,6 +143,11 @@ pmtp_control <- function(
   }
   assert_positive(max_norm_h, "max_norm_h", allow_inf = TRUE)
   assert_positive(max_norm_g, "max_norm_g", allow_inf = TRUE)
+  assert_positive(matern_smoothness, "matern_smoothness")
+  assert_positive(sobolev_l, "sobolev_l")
+  if (length(matern_smoothness) != 1L || length(sobolev_l) != 1L) {
+    stop("Kernel smoothness parameters must be scalar.", call. = FALSE)
+  }
   assert_flag(keep_cv, "keep_cv")
   assert_flag(progress, "progress")
   assert_flag(cache_kernel_features, "cache_kernel_features")
@@ -162,7 +180,10 @@ pmtp_control <- function(
     kernel_approximation = kernel_approximation,
     nystrom_rank = nystrom_rank,
     nystrom_landmarks = nystrom_landmarks,
-    cache_kernel_features = cache_kernel_features
+    cache_kernel_features = cache_kernel_features,
+    kernel_family = kernel_family,
+    matern_smoothness = matern_smoothness,
+    sobolev_l = sobolev_l
   ), class = "pmtp_control")
 }
 
@@ -187,7 +208,9 @@ pmtp_control_fixed <- function(
     bandwidth_hp = 1 / 4,
     risk_bandwidth = 1 / 4,
     risk_penalty = 1,
-    critical_radius_rule = c("legacy_d1", "gaussian_dimension"),
+    critical_radius_rule = c(
+      "legacy_d1", "gaussian_dimension", "matern_sobolev"
+    ),
     max_norm_h = 50,
     max_norm_g = 50,
     seed = 1234L,
@@ -199,10 +222,14 @@ pmtp_control_fixed <- function(
     kernel_approximation = c("exact", "nystrom"),
     nystrom_rank = pmtp_nystrom_rank(),
     nystrom_landmarks = c("uniform", "weighted"),
-    cache_kernel_features = TRUE) {
+    cache_kernel_features = TRUE,
+    kernel_family = c("gaussian", "matern_sobolev"),
+    matern_smoothness = 2,
+    sobolev_l = 4) {
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
   critical_radius_rule <- match.arg(critical_radius_rule)
+  kernel_family <- match.arg(kernel_family)
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = 1L,
@@ -229,7 +256,10 @@ pmtp_control_fixed <- function(
     kernel_approximation = kernel_approximation,
     nystrom_rank = nystrom_rank,
     nystrom_landmarks = nystrom_landmarks,
-    cache_kernel_features = cache_kernel_features
+    cache_kernel_features = cache_kernel_features,
+    kernel_family = kernel_family,
+    matern_smoothness = matern_smoothness,
+    sobolev_l = sobolev_l
   )
 }
 
@@ -250,10 +280,16 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
                               kernel_approximation = c("exact", "nystrom"),
                               nystrom_rank = pmtp_nystrom_rank(),
                               nystrom_landmarks = c("uniform", "weighted"),
-                              cache_kernel_features = TRUE) {
+                              cache_kernel_features = TRUE,
+                              kernel_family = c(
+                                "gaussian", "matern_sobolev"
+                              ),
+                              matern_smoothness = 2,
+                              sobolev_l = 4) {
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
   critical_radius_rule <- match.arg(critical_radius_rule)
+  kernel_family <- match.arg(kernel_family)
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = inner_folds,
@@ -273,6 +309,9 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
     kernel_approximation = kernel_approximation,
     nystrom_rank = nystrom_rank,
     nystrom_landmarks = nystrom_landmarks,
-    cache_kernel_features = cache_kernel_features
+    cache_kernel_features = cache_kernel_features,
+    kernel_family = kernel_family,
+    matern_smoothness = matern_smoothness,
+    sobolev_l = sobolev_l
   )
 }

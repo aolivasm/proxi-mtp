@@ -177,8 +177,10 @@ compact_grid <- function(outer_lambda, inner_lambda,
 
 critical_radius_squared <- function(population_size, dimension = 1L,
                                     rule = c(
-                                      "legacy_d1", "gaussian_dimension"
-                                    )) {
+                                      "legacy_d1", "gaussian_dimension",
+                                      "matern_sobolev"
+                                    ),
+                                    sobolev_l = 4) {
   rule <- match.arg(rule)
   if (length(population_size) != 1L || !is.numeric(population_size) ||
       is.na(population_size) || !is.finite(population_size) ||
@@ -191,28 +193,41 @@ critical_radius_squared <- function(population_size, dimension = 1L,
       dimension != as.integer(dimension)) {
     stop("`dimension` must be a positive integer.", call. = FALSE)
   }
+  if (identical(rule, "matern_sobolev")) {
+    if (length(sobolev_l) != 1L || !is.numeric(sobolev_l) ||
+        is.na(sobolev_l) || !is.finite(sobolev_l) || sobolev_l <= 0) {
+      stop("`sobolev_l` must be positive and finite.", call. = FALSE)
+    }
+    sobolev_order <- (sobolev_l + dimension) / 2
+    return(population_size^(
+      -2 * sobolev_order / (2 * sobolev_order + dimension)
+    ))
+  }
   exponent <- if (identical(rule, "legacy_d1")) 1L else as.integer(dimension)
   log(population_size)^exponent / population_size
 }
 
 actual_outer_lambda <- function(scale, population_size, dimension = 1L,
-                                rule = "legacy_d1") {
+                                rule = "legacy_d1", sobolev_l = 4) {
   scale * sqrt(critical_radius_squared(
-    population_size, dimension = dimension, rule = rule
+    population_size, dimension = dimension, rule = rule,
+    sobolev_l = sobolev_l
   ))
 }
 
 actual_inner_lambda <- function(scale, population_size, dimension = 1L,
-                                rule = "legacy_d1") {
+                                rule = "legacy_d1", sobolev_l = 4) {
   scale * critical_radius_squared(
-    population_size, dimension = dimension, rule = rule
+    population_size, dimension = dimension, rule = rule,
+    sobolev_l = sobolev_l
   )
 }
 
 actual_risk_lambda <- function(scale, population_size, dimension = 1L,
-                               rule = "legacy_d1") {
+                               rule = "legacy_d1", sobolev_l = 4) {
   actual_inner_lambda(
-    scale, population_size, dimension = dimension, rule = rule
+    scale, population_size, dimension = dimension, rule = rule,
+    sobolev_l = sobolev_l
   )
 }
 

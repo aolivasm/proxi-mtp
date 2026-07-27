@@ -18,7 +18,7 @@ pmtp_control(
   bandwidth_hp = 1/4,
   risk_bandwidth = 1/4,
   risk_penalty = 1,
-  critical_radius_rule = c("legacy_d1", "gaussian_dimension"),
+  critical_radius_rule = c("legacy_d1", "gaussian_dimension", "matern_sobolev"),
   max_norm_h = 50,
   max_norm_g = 50,
   seed = 1234L,
@@ -31,7 +31,10 @@ pmtp_control(
   kernel_approximation = c("exact", "nystrom"),
   nystrom_rank = pmtp_nystrom_rank(),
   nystrom_landmarks = c("uniform", "weighted"),
-  cache_kernel_features = TRUE
+  cache_kernel_features = TRUE,
+  kernel_family = c("gaussian", "matern_sobolev"),
+  matern_smoothness = 2,
+  sobolev_l = 4
 )
 }
 \arguments{
@@ -116,6 +119,16 @@ maps and shared minimax systems across tuning candidates with the same
 bandwidths and inner penalty. This changes only computation, not
 landmarks, risks, or fitted estimators. It is ignored by the exact
 backend.}
+
+\item{kernel_family}{RKHS kernel family. \code{"gaussian"} uses the Gaussian RBF
+kernel. \code{"matern_sobolev"} uses a Matérn kernel whose native space is
+equivalent to a Sobolev space.}
+
+\item{matern_smoothness}{Positive Matérn smoothness parameter.}
+
+\item{sobolev_l}{Positive spectral-order parameter used by the
+\code{"matern_sobolev"} critical-radius rule. It equals twice
+\code{matern_smoothness}.}
 }
 \value{
 A list of class \code{pmtp_control}.

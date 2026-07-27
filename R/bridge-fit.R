@@ -3,6 +3,23 @@ rkhs_norm <- function(coef, kernel) {
   sqrt(max(value, 0))
 }
 
+control_kernel_family <- function(control) {
+  control$kernel_family %||% "gaussian"
+}
+
+control_matern_smoothness <- function(control) {
+  control$matern_smoothness %||% 2
+}
+
+controlled_kernel_matrix <- function(x, y = NULL, sigma2, control) {
+  kernel_matrix(
+    x, y,
+    sigma2 = sigma2,
+    kernel_family = control_kernel_family(control),
+    matern_smoothness = control_matern_smoothness(control)
+  )
+}
+
 solve_with_norm_bound <- function(a, b, kernel, bound, control) {
   solve_at <- function(multiplier) {
     safe_solve(
@@ -250,8 +267,10 @@ fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
     ))
   }
   n_population <- sum(weights)
-  k_h <- gaussian_kernel(h, sigma2 = sigma2_h)
-  k_gp <- gaussian_kernel(gp, sigma2 = sigma2_gp)
+  k_h <- controlled_kernel_matrix(h, sigma2 = sigma2_h, control = control)
+  k_gp <- controlled_kernel_matrix(
+    gp, sigma2 = sigma2_gp, control = control
+  )
 
   k_gp_d <- sweep(k_gp, 2L, weights, "*")
   q_inner <- k_gp_d %*% k_gp / n_population + lambda_gp * k_gp
@@ -281,6 +300,8 @@ fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
                    effective_rank = nrow(gp))
     ),
     sigma2 = sigma2_h,
+    kernel_family = control_kernel_family(control),
+    matern_smoothness = control_matern_smoothness(control),
     norm = solution$norm,
     constraint = solution$constraint,
     lambda_outer = lambda_h,
@@ -300,9 +321,11 @@ fit_treatment_bridge <- function(g, hp, hp_q, weights, target, policy_support,
     ))
   }
   n_population <- sum(weights)
-  k_g <- gaussian_kernel(g, sigma2 = sigma2_g)
-  k_hp <- gaussian_kernel(hp, sigma2 = sigma2_hp)
-  k_hp_q <- gaussian_kernel(hp_q, hp, sigma2 = sigma2_hp)
+  k_g <- controlled_kernel_matrix(g, sigma2 = sigma2_g, control = control)
+  k_hp <- controlled_kernel_matrix(hp, sigma2 = sigma2_hp, control = control)
+  k_hp_q <- controlled_kernel_matrix(
+    hp_q, hp, sigma2 = sigma2_hp, control = control
+  )
   weighted_support <- weights * policy_support
 
   q_inner <- sweep(k_hp, 2L, weighted_support, "*") %*% k_hp /
@@ -339,6 +362,8 @@ fit_treatment_bridge <- function(g, hp, hp_q, weights, target, policy_support,
                    effective_rank = nrow(hp))
     ),
     sigma2 = sigma2_g,
+    kernel_family = control_kernel_family(control),
+    matern_smoothness = control_matern_smoothness(control),
     norm = solution$norm,
     constraint = solution$constraint,
     lambda_outer = lambda_g,
@@ -354,10 +379,12 @@ predict_outcome_bridge <- function(object, new_arguments) {
         object$coefficients
     ))
   }
-  drop(gaussian_kernel(
+  drop(kernel_matrix(
     new_arguments,
     object$training_arguments,
-    sigma2 = object$sigma2
+    sigma2 = object$sigma2,
+    kernel_family = object$kernel_family %||% "gaussian",
+    matern_smoothness = object$matern_smoothness %||% 2
   ) %*% object$coefficients)
 }
 
@@ -368,10 +395,12 @@ predict_treatment_bridge <- function(object, new_arguments) {
         object$coefficients
     ))
   }
-  drop(gaussian_kernel(
+  drop(kernel_matrix(
     new_arguments,
     object$training_arguments,
-    sigma2 = object$sigma2
+    sigma2 = object$sigma2,
+    kernel_family = object$kernel_family %||% "gaussian",
+    matern_smoothness = object$matern_smoothness %||% 2
   ) %*% object$coefficients)
 }
 
@@ -394,7 +423,9 @@ outcome_validation_risk <- function(residual, adversary_arguments, weights,
     )
     return(max(drop(crossprod(b, solution)) / 4, 0))
   }
-  kernel <- gaussian_kernel(adversary_arguments, sigma2 = sigma2)
+  kernel <- controlled_kernel_matrix(
+    adversary_arguments, sigma2 = sigma2, control = control
+  )
   q <- sweep(kernel, 2L, weights, "*") %*% kernel /
     n_population + lambda * kernel
   b <- kernel %*% (weights * residual) / n_population
@@ -435,11 +466,14 @@ treatment_validation_risk <- function(g_value, adversary_arguments,
     )
     return(max(drop(crossprod(b, solution)) / 4, 0))
   }
-  kernel <- gaussian_kernel(adversary_arguments, sigma2 = sigma2)
-  kernel_q <- gaussian_kernel(
+  kernel <- controlled_kernel_matrix(
+    adversary_arguments, sigma2 = sigma2, control = control
+  )
+  kernel_q <- controlled_kernel_matrix(
     adversary_policy_arguments,
     adversary_arguments,
-    sigma2 = sigma2
+    sigma2 = sigma2,
+    control = control
   )
   weighted_support <- weights * policy_support
   q <- sweep(kernel, 2L, weighted_support, "*") %*% kernel /

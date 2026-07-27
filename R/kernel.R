@@ -236,8 +236,12 @@ select_nystrom_landmarks <- function(n, rank, weights, method, seed) {
 }
 
 fit_nystrom_map <- function(x, sigma2, weights, control, seed_offset = 0L,
-                            kernel_family = "gaussian",
-                            matern_smoothness = 2) {
+                            kernel_family = NULL,
+                            matern_smoothness = NULL) {
+  kernel_family <- kernel_family %||%
+    control$kernel_family %||% "gaussian"
+  matern_smoothness <- matern_smoothness %||%
+    control$matern_smoothness %||% 2
   kernel_family <- match.arg(
     kernel_family, c("gaussian", "matern_sobolev")
   )
