@@ -100,4 +100,36 @@ test_that("Sobolev diagonal launcher defines the prespecified 12 cells", {
     grid[1L, , drop = FALSE], expanded
   )
   expect_true(any(expanded_job == "--tuning=cv_expanded"))
+
+  wide <- environment$parse_sobolev_diagonal_arguments(
+    "--tuning=cv_sobolev_wide"
+  )
+  wide_job <- environment$sobolev_diagonal_job_arguments(
+    grid[1L, , drop = FALSE], wide
+  )
+  expect_true(any(wide_job == "--tuning=cv_sobolev_wide"))
+})
+
+test_that("wide Sobolev calibration extends every truncated tuning boundary", {
+  environment <- new.env(parent = globalenv())
+  sys.source(
+    testthat::test_path("../../simulation/run-paper-dgp-study.R"),
+    envir = environment
+  )
+  config <- environment$parse_study_arguments(character())
+  config$critical_radius_rule <- "matern_sobolev"
+  config$kernel_family <- "matern_sobolev"
+  control <- environment$cv_sobolev_wide_study_control(
+    seed = 91L,
+    selection_rule = "minimum",
+    inner_repeats = 2L,
+    config = config
+  )
+
+  expect_equal(control$lambda_h, 10^seq(-5, -1, by = 1))
+  expect_equal(control$lambda_gp, 10^seq(-3, 4, by = 1))
+  expect_equal(control$bandwidth_h, 2^seq(-2, 8, by = 1))
+  expect_equal(control$lambda_g, control$lambda_h)
+  expect_equal(control$lambda_hp, control$lambda_gp)
+  expect_equal(control$bandwidth_g, control$bandwidth_h)
 })
