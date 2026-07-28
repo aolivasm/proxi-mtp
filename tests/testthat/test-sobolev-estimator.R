@@ -89,6 +89,15 @@ test_that("Sobolev diagonal launcher defines the prespecified 12 cells", {
   expect_true(all(vapply(jobs, function(x) {
     any(x == "--kernel-family=matern_sobolev") &&
       any(x == "--critical-radius-rule=matern_sobolev") &&
+      any(x == "--tuning=cv_paper") &&
       any(x == "--weighted=false")
   }, logical(1L))))
+
+  expanded <- environment$parse_sobolev_diagonal_arguments(
+    "--tuning=cv_expanded"
+  )
+  expanded_job <- environment$sobolev_diagonal_job_arguments(
+    grid[1L, , drop = FALSE], expanded
+  )
+  expect_true(any(expanded_job == "--tuning=cv_expanded"))
 })
