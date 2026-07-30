@@ -1,4 +1,7 @@
-minimal_control <- function(seed = 19L, critical_radius_rule = "legacy_d1") {
+minimal_control <- function(
+    seed = 19L,
+    critical_radius_rule = "legacy_d1",
+    weighted_loss_normalization = "hajek") {
   pmtp_control(
     outer_folds = 2L,
     inner_folds = 2L,
@@ -14,7 +17,8 @@ minimal_control <- function(seed = 19L, critical_radius_rule = "legacy_d1") {
     max_norm_h = Inf,
     max_norm_g = Inf,
     seed = seed,
-    keep_cv = TRUE
+    keep_cv = TRUE,
+    weighted_loss_normalization = weighted_loss_normalization
   )
 }
 

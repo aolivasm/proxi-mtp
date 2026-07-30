@@ -72,6 +72,14 @@
 #' @param sobolev_l Positive spectral-order parameter used by the
 #'   `"matern_sobolev"` critical-radius rule. It equals twice
 #'   `matern_smoothness`.
+#' @param weighted_loss_normalization Normalization for weighted empirical
+#'   bridge losses. `"hajek"` divides each fold-specific weighted sum by the
+#'   sum of its inverse-probability weights and preserves the implementation
+#'   used for the completed simulations. `"horvitz_thompson"` divides by the
+#'   corresponding phase-one fold size, matching the estimator displayed in
+#'   the paper. The latter requires `population_size` in [pmtp()] for an exact
+#'   full-sample normalization; fold sizes are allocated in proportion to the
+#'   number of observed phase-two rows in each split.
 #'
 #' @return A list of class `pmtp_control`.
 #' @export
@@ -109,13 +117,15 @@ pmtp_control <- function(
     cache_kernel_features = TRUE,
     kernel_family = c("gaussian", "matern_sobolev"),
     matern_smoothness = 2,
-    sobolev_l = 4) {
+    sobolev_l = 4,
+    weighted_loss_normalization = c("hajek", "horvitz_thompson")) {
   assert_flag(tune, "tune")
   selection_rule <- match.arg(selection_rule)
   critical_radius_rule <- match.arg(critical_radius_rule)
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
   kernel_family <- match.arg(kernel_family)
+  weighted_loss_normalization <- match.arg(weighted_loss_normalization)
   if (length(inner_repeats) != 1L || is.na(inner_repeats) ||
       inner_repeats < 1L || inner_repeats != as.integer(inner_repeats)) {
     stop("`inner_repeats` must be a positive integer.", call. = FALSE)
@@ -183,7 +193,8 @@ pmtp_control <- function(
     cache_kernel_features = cache_kernel_features,
     kernel_family = kernel_family,
     matern_smoothness = matern_smoothness,
-    sobolev_l = sobolev_l
+    sobolev_l = sobolev_l,
+    weighted_loss_normalization = weighted_loss_normalization
   ), class = "pmtp_control")
 }
 
@@ -225,11 +236,13 @@ pmtp_control_fixed <- function(
     cache_kernel_features = TRUE,
     kernel_family = c("gaussian", "matern_sobolev"),
     matern_smoothness = 2,
-    sobolev_l = 4) {
+    sobolev_l = 4,
+    weighted_loss_normalization = c("hajek", "horvitz_thompson")) {
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
   critical_radius_rule <- match.arg(critical_radius_rule)
   kernel_family <- match.arg(kernel_family)
+  weighted_loss_normalization <- match.arg(weighted_loss_normalization)
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = 1L,
@@ -259,7 +272,8 @@ pmtp_control_fixed <- function(
     cache_kernel_features = cache_kernel_features,
     kernel_family = kernel_family,
     matern_smoothness = matern_smoothness,
-    sobolev_l = sobolev_l
+    sobolev_l = sobolev_l,
+    weighted_loss_normalization = weighted_loss_normalization
   )
 }
 
@@ -285,11 +299,15 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
                                 "gaussian", "matern_sobolev"
                               ),
                               matern_smoothness = 2,
-                              sobolev_l = 4) {
+                              sobolev_l = 4,
+                              weighted_loss_normalization = c(
+                                "hajek", "horvitz_thompson"
+                              )) {
   kernel_approximation <- match.arg(kernel_approximation)
   nystrom_landmarks <- match.arg(nystrom_landmarks)
   critical_radius_rule <- match.arg(critical_radius_rule)
   kernel_family <- match.arg(kernel_family)
+  weighted_loss_normalization <- match.arg(weighted_loss_normalization)
   pmtp_control(
     outer_folds = outer_folds,
     inner_folds = inner_folds,
@@ -312,6 +330,7 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
     cache_kernel_features = cache_kernel_features,
     kernel_family = kernel_family,
     matern_smoothness = matern_smoothness,
-    sobolev_l = sobolev_l
+    sobolev_l = sobolev_l,
+    weighted_loss_normalization = weighted_loss_normalization
   )
 }

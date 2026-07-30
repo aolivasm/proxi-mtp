@@ -67,8 +67,10 @@ and evaluated on its held-out fold.
 When inverse two-phase sampling weights are supplied, the same weighted
 empirical minimax objectives are used for bridge fitting and validation. The
 regularization rates depend on the number of observed rows in each fold, not
-on the sum of inverse-probability weights. This keeps the nuisance fits
-invariant to a common rescaling of all weights. The
+on the sum of inverse-probability weights. The empirical losses can use
+either the existing Hájek normalization or the Horvitz--Thompson
+normalization displayed in the paper; see
+\code{weighted_loss_normalization} in \code{\link[=pmtp_control]{pmtp_control()}}. The
 final estimator is
 \code{sum(weights * phi) / sum(weights * target)}. Its variance uses squared
 inverse sampling weights, as required by the observed-data influence

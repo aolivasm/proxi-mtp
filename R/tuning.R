@@ -21,6 +21,14 @@ use_nystrom_feature_cache <- function(control) {
     isTRUE(control$cache_kernel_features)
 }
 
+split_loss_normalizer <- function(dat, indices, control) {
+  mode <- control$weighted_loss_normalization %||% "hajek"
+  if (!isTRUE(dat$weighted) || identical(mode, "hajek")) {
+    return(sum(dat$weight[indices]))
+  }
+  dat$population_size * length(indices) / length(dat$a)
+}
+
 cache_nystrom_maps <- function(arguments, sigma2, weights, control,
                                seed_offset) {
   lapply(sigma2, function(value) {
@@ -45,7 +53,8 @@ nystrom_penalty_path_groups <- function(grid) {
 
 evaluate_outcome_nystrom_grid <- function(
     prepared, training_y, validation_y, training_weights, validation_weights, grid,
-    n_training, base_h, base_gp, risk_base, risk_lambda,
+    n_training, training_normalizer, validation_normalizer,
+    base_h, base_gp, risk_base, risk_lambda,
     feature_cache, control) {
   risks <- rep(Inf, nrow(grid))
   groups <- nystrom_penalty_path_groups(grid)
@@ -69,7 +78,8 @@ evaluate_outcome_nystrom_grid <- function(
           rule = control$critical_radius_rule,
           sobolev_l = control$sobolev_l %||% 4
         ),
-        control
+        control,
+        training_normalizer
       ),
       error = function(e) NULL
     )
@@ -97,7 +107,8 @@ evaluate_outcome_nystrom_grid <- function(
           sigma2 = risk_base * control$risk_bandwidth,
           lambda = risk_lambda,
           control = control,
-          feature_map = feature_cache$risk
+          feature_map = feature_cache$risk,
+          normalizer = validation_normalizer
         )
       }, error = function(e) Inf)
     }
@@ -108,7 +119,8 @@ evaluate_outcome_nystrom_grid <- function(
 evaluate_treatment_nystrom_grid <- function(
     prepared, training_weights, validation_weights, training_target,
     validation_target, training_support, validation_support, grid,
-    n_training, base_g, base_hp, risk_base, risk_lambda,
+    n_training, training_normalizer, validation_normalizer,
+    base_g, base_hp, risk_base, risk_lambda,
     feature_cache, control) {
   risks <- rep(Inf, nrow(grid))
   groups <- nystrom_penalty_path_groups(grid)
@@ -134,7 +146,8 @@ evaluate_treatment_nystrom_grid <- function(
           rule = control$critical_radius_rule,
           sobolev_l = control$sobolev_l %||% 4
         ),
-        control
+        control,
+        training_normalizer
       ),
       error = function(e) NULL
     )
@@ -168,7 +181,8 @@ evaluate_treatment_nystrom_grid <- function(
           lambda = risk_lambda,
           control = control,
           feature_map = feature_cache$risk,
-          policy_features = feature_cache$risk_policy_features
+          policy_features = feature_cache$risk_policy_features,
+          normalizer = validation_normalizer
         )
       }, error = function(e) Inf)
     }
@@ -355,10 +369,16 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
     prepared <- prepare_fold_data(dat, training, validation)
     # Penalty rates are governed by the number of observed phase-two rows,
     # not by the Horvitz-Thompson estimate of the phase-one population size.
-    # The weighted empirical objectives themselves remain normalized by the
-    # sum of weights inside the bridge-fitting and risk functions.
+    # The empirical-loss normalizer is selected separately below; it does not
+    # change the observed-row sample size used in the penalty-rate formula.
     n_training <- length(training)
     n_validation <- length(validation)
+    training_normalizer <- split_loss_normalizer(
+      dat, training, control
+    )
+    validation_normalizer <- split_loss_normalizer(
+      dat, validation, control
+    )
     base_h <- median_bandwidth(prepared$train$h, dat$weight[training])
     base_gp <- median_bandwidth(prepared$train$g, dat$weight[training])
     risk_base <- median_bandwidth(
@@ -411,6 +431,8 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
         validation_weights = dat$weight[validation],
         grid = grid,
         n_training = n_training,
+        training_normalizer = training_normalizer,
+        validation_normalizer = validation_normalizer,
         base_h = base_h,
         base_gp = base_gp,
         risk_base = risk_base,
@@ -454,7 +476,8 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
           sigma2_gp = base_gp * grid$inner_bandwidth_scale[candidate],
           max_norm = control$max_norm_h,
           control = control,
-          feature_maps = candidate_maps
+          feature_maps = candidate_maps,
+          normalizer = training_normalizer
         )
         prediction <- predict_outcome_bridge(fit, prepared$validation$h)
         outcome_validation_risk(
@@ -464,7 +487,8 @@ tune_outcome_bridge <- function(dat, indices, control, seed_offset = 0L) {
           sigma2 = risk_base * control$risk_bandwidth,
           lambda = risk_lambda,
           control = control,
-          feature_map = feature_cache$risk %||% NULL
+          feature_map = feature_cache$risk %||% NULL,
+          normalizer = validation_normalizer
         )
       }, error = function(e) Inf)
     }
@@ -510,6 +534,12 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
     prepared <- prepare_fold_data(dat, training, validation, policy_index)
     n_training <- length(training)
     n_validation <- length(validation)
+    training_normalizer <- split_loss_normalizer(
+      dat, training, control
+    )
+    validation_normalizer <- split_loss_normalizer(
+      dat, validation, control
+    )
     base_g <- median_bandwidth(prepared$train$g, dat$weight[training])
     base_hp <- median_bandwidth(prepared$train$h, dat$weight[training])
     risk_base <- median_bandwidth(
@@ -574,6 +604,8 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
           dat$policy_support[[policy_index]][validation],
         grid = grid,
         n_training = n_training,
+        training_normalizer = training_normalizer,
+        validation_normalizer = validation_normalizer,
         base_g = base_g,
         base_hp = base_hp,
         risk_base = risk_base,
@@ -624,7 +656,8 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
           sigma2_hp = base_hp * grid$inner_bandwidth_scale[candidate],
           max_norm = control$max_norm_g,
           control = control,
-          feature_maps = candidate_maps
+          feature_maps = candidate_maps,
+          normalizer = training_normalizer
         )
         prediction <- predict_treatment_bridge(fit, prepared$validation$g)
         treatment_validation_risk(
@@ -638,7 +671,8 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
           lambda = risk_lambda,
           control = control,
           feature_map = feature_cache$risk %||% NULL,
-          policy_features = feature_cache$risk_policy_features %||% NULL
+          policy_features = feature_cache$risk_policy_features %||% NULL,
+          normalizer = validation_normalizer
         )
       }, error = function(e) Inf)
     }
@@ -670,6 +704,7 @@ tune_treatment_bridge <- function(dat, indices, policy_index, control,
 fit_selected_outcome <- function(dat, training, validation, tuning, control) {
   prepared <- prepare_fold_data(dat, training, validation)
   n_training <- length(training)
+  training_normalizer <- split_loss_normalizer(dat, training, control)
   base_h <- median_bandwidth(prepared$train$h, dat$weight[training])
   base_gp <- median_bandwidth(prepared$train$g, dat$weight[training])
   fit <- fit_outcome_bridge(
@@ -692,7 +727,8 @@ fit_selected_outcome <- function(dat, training, validation, tuning, control) {
     sigma2_h = base_h * tuning$outer_bandwidth_scale,
     sigma2_gp = base_gp * tuning$inner_bandwidth_scale,
     max_norm = control$max_norm_h,
-    control = control
+    control = control,
+    normalizer = training_normalizer
   )
   list(
     fit = fit,
@@ -709,6 +745,7 @@ fit_selected_outcome <- function(dat, training, validation, tuning, control) {
 fit_selected_treatment <- function(dat, training, validation, policy_index,
                                    tuning, prepared, control) {
   n_training <- length(training)
+  training_normalizer <- split_loss_normalizer(dat, training, control)
   base_g <- median_bandwidth(prepared$train$g, dat$weight[training])
   base_hp <- median_bandwidth(prepared$train$h, dat$weight[training])
   fit <- fit_treatment_bridge(
@@ -733,7 +770,8 @@ fit_selected_treatment <- function(dat, training, validation, policy_index,
     sigma2_g = base_g * tuning$outer_bandwidth_scale,
     sigma2_hp = base_hp * tuning$inner_bandwidth_scale,
     max_norm = control$max_norm_g,
-    control = control
+    control = control,
+    normalizer = training_normalizer
   )
   list(
     fit = fit,

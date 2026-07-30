@@ -232,8 +232,10 @@ build_analysis_data <- function(data, treatment, outcome, covariates,
 #' When inverse two-phase sampling weights are supplied, the same weighted
 #' empirical minimax objectives are used for bridge fitting and validation. The
 #' regularization rates depend on the number of observed rows in each fold, not
-#' on the sum of inverse-probability weights. This keeps the nuisance fits
-#' invariant to a common rescaling of all weights. The
+#' on the sum of inverse-probability weights. The empirical losses can use
+#' either the existing Hájek normalization or the Horvitz--Thompson
+#' normalization displayed in the paper; see
+#' `weighted_loss_normalization` in [pmtp_control()]. The
 #' final estimator is
 #' `sum(weights * phi) / sum(weights * target)`. Its variance uses squared
 #' inverse sampling weights, as required by the observed-data influence
@@ -307,6 +309,8 @@ pmtp <- function(
   if (length(population_size) != 1L) {
     stop("`population_size` must be a single positive value.", call. = FALSE)
   }
+  dat$population_size <- as.numeric(population_size)
+  dat$weighted <- !is.null(weights)
 
   outer_fold <- make_folds(
     dat$a, dat$y, control$outer_folds, control$seed
@@ -431,6 +435,8 @@ pmtp <- function(
     population_size = population_size,
     target_probability = target_probability,
     weighted = !is.null(weights),
+    weighted_loss_normalization =
+      control$weighted_loss_normalization %||% "hajek",
     control = control,
     call = match.call()
   ), class = "pmtp_fit")

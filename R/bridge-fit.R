@@ -58,6 +58,16 @@ feature_norm <- function(coef) {
   sqrt(sum(coef^2))
 }
 
+resolve_loss_normalizer <- function(weights, normalizer = NULL) {
+  value <- normalizer %||% sum(weights)
+  if (length(value) != 1L || !is.numeric(value) || is.na(value) ||
+      !is.finite(value) || value <= 0) {
+    stop("The empirical-loss normalizer must be one positive finite number.",
+         call. = FALSE)
+  }
+  as.numeric(value)
+}
+
 solve_feature_with_norm_bound <- function(a, b, bound, control) {
   identity_matrix <- diag(nrow(a))
   solve_at <- function(multiplier) {
@@ -102,8 +112,8 @@ nystrom_map_summary <- function(object) {
 }
 
 prepare_outcome_bridge_nystrom_system <- function(
-    h_map, gp_map, y, weights, lambda_gp, control) {
-  n_population <- sum(weights)
+    h_map, gp_map, y, weights, lambda_gp, control, normalizer = NULL) {
+  n_population <- resolve_loss_normalizer(weights, normalizer)
   phi_h <- h_map$training_features
   phi_gp <- gp_map$training_features
   weighted_phi_gp <- sweep(phi_gp, 1L, weights, "*")
@@ -160,7 +170,8 @@ finish_outcome_bridge_nystrom_system <- function(
 
 fit_outcome_bridge_nystrom <- function(
     h, gp, y, weights, lambda_h, lambda_gp,
-    sigma2_h, sigma2_gp, max_norm, control, feature_maps = NULL) {
+    sigma2_h, sigma2_gp, max_norm, control, feature_maps = NULL,
+    normalizer = NULL) {
   h_map <- feature_maps$outer %||% fit_nystrom_map(
     h, sigma2_h, weights, control, seed_offset = 101L
   )
@@ -168,7 +179,7 @@ fit_outcome_bridge_nystrom <- function(
     gp, sigma2_gp, weights, control, seed_offset = 102L
   )
   system <- prepare_outcome_bridge_nystrom_system(
-    h_map, gp_map, y, weights, lambda_gp, control
+    h_map, gp_map, y, weights, lambda_gp, control, normalizer
   )
   finish_outcome_bridge_nystrom_system(
     system, lambda_h, sigma2_h, sigma2_gp, max_norm, control
@@ -177,8 +188,8 @@ fit_outcome_bridge_nystrom <- function(
 
 prepare_treatment_bridge_nystrom_system <- function(
     g_map, hp_map, policy_inner_features, weights, target, policy_support,
-    lambda_hp, control) {
-  n_population <- sum(weights)
+    lambda_hp, control, normalizer = NULL) {
+  n_population <- resolve_loss_normalizer(weights, normalizer)
   phi_g <- g_map$training_features
   phi_hp <- hp_map$training_features
   weighted_support <- weights * policy_support
@@ -239,7 +250,7 @@ finish_treatment_bridge_nystrom_system <- function(
 fit_treatment_bridge_nystrom <- function(
     g, hp, hp_q, weights, target, policy_support,
     lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control,
-    feature_maps = NULL) {
+    feature_maps = NULL, normalizer = NULL) {
   g_map <- feature_maps$outer %||% fit_nystrom_map(
     g, sigma2_g, weights, control, seed_offset = 201L
   )
@@ -250,7 +261,7 @@ fit_treatment_bridge_nystrom <- function(
     predict_nystrom_features(hp_map, hp_q)
   system <- prepare_treatment_bridge_nystrom_system(
     g_map, hp_map, policy_inner_features, weights, target, policy_support,
-    lambda_hp, control
+    lambda_hp, control, normalizer
   )
   finish_treatment_bridge_nystrom_system(
     system, lambda_g, sigma2_g, sigma2_hp, max_norm, control
@@ -259,14 +270,14 @@ fit_treatment_bridge_nystrom <- function(
 
 fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
                                sigma2_h, sigma2_gp, max_norm, control,
-                               feature_maps = NULL) {
+                               feature_maps = NULL, normalizer = NULL) {
   if (identical(control$kernel_approximation, "nystrom")) {
     return(fit_outcome_bridge_nystrom(
       h, gp, y, weights, lambda_h, lambda_gp,
-      sigma2_h, sigma2_gp, max_norm, control, feature_maps
+      sigma2_h, sigma2_gp, max_norm, control, feature_maps, normalizer
     ))
   }
-  n_population <- sum(weights)
+  n_population <- resolve_loss_normalizer(weights, normalizer)
   k_h <- controlled_kernel_matrix(h, sigma2 = sigma2_h, control = control)
   k_gp <- controlled_kernel_matrix(
     gp, sigma2 = sigma2_gp, control = control
@@ -312,15 +323,16 @@ fit_outcome_bridge <- function(h, gp, y, weights, lambda_h, lambda_gp,
 
 fit_treatment_bridge <- function(g, hp, hp_q, weights, target, policy_support,
                                  lambda_g, lambda_hp, sigma2_g, sigma2_hp,
-                                 max_norm, control, feature_maps = NULL) {
+                                 max_norm, control, feature_maps = NULL,
+                                 normalizer = NULL) {
   if (identical(control$kernel_approximation, "nystrom")) {
     return(fit_treatment_bridge_nystrom(
       g, hp, hp_q, weights, target, policy_support,
       lambda_g, lambda_hp, sigma2_g, sigma2_hp, max_norm, control,
-      feature_maps
+      feature_maps, normalizer
     ))
   }
-  n_population <- sum(weights)
+  n_population <- resolve_loss_normalizer(weights, normalizer)
   k_g <- controlled_kernel_matrix(g, sigma2 = sigma2_g, control = control)
   k_hp <- controlled_kernel_matrix(hp, sigma2 = sigma2_hp, control = control)
   k_hp_q <- controlled_kernel_matrix(
@@ -406,8 +418,8 @@ predict_treatment_bridge <- function(object, new_arguments) {
 
 outcome_validation_risk <- function(residual, adversary_arguments, weights,
                                     sigma2, lambda, control,
-                                    feature_map = NULL) {
-  n_population <- sum(weights)
+                                    feature_map = NULL, normalizer = NULL) {
+  n_population <- resolve_loss_normalizer(weights, normalizer)
   if (identical(control$kernel_approximation, "nystrom")) {
     feature_map <- feature_map %||% fit_nystrom_map(
       adversary_arguments, sigma2, weights, control, seed_offset = 301L
@@ -441,8 +453,9 @@ treatment_validation_risk <- function(g_value, adversary_arguments,
                                       adversary_policy_arguments, weights,
                                       target, policy_support, sigma2, lambda,
                                       control, feature_map = NULL,
-                                      policy_features = NULL) {
-  n_population <- sum(weights)
+                                      policy_features = NULL,
+                                      normalizer = NULL) {
+  n_population <- resolve_loss_normalizer(weights, normalizer)
   if (identical(control$kernel_approximation, "nystrom")) {
     feature_map <- feature_map %||% fit_nystrom_map(
       adversary_arguments, sigma2, weights, control, seed_offset = 302L

@@ -34,7 +34,8 @@ pmtp_control(
   cache_kernel_features = TRUE,
   kernel_family = c("gaussian", "matern_sobolev"),
   matern_smoothness = 2,
-  sobolev_l = 4
+  sobolev_l = 4,
+  weighted_loss_normalization = c("hajek", "horvitz_thompson")
 )
 }
 \arguments{
@@ -129,6 +130,15 @@ equivalent to a Sobolev space.}
 \item{sobolev_l}{Positive spectral-order parameter used by the
 \code{"matern_sobolev"} critical-radius rule. It equals twice
 \code{matern_smoothness}.}
+
+\item{weighted_loss_normalization}{Normalization for weighted empirical
+bridge losses. \code{"hajek"} divides each fold-specific weighted sum by the
+sum of its inverse-probability weights and preserves the implementation
+used for the completed simulations. \code{"horvitz_thompson"} divides by the
+corresponding phase-one fold size, matching the estimator displayed in
+the paper. The latter requires \code{population_size} in \code{\link[=pmtp]{pmtp()}} for an exact
+full-sample normalization; fold sizes are allocated in proportion to the
+number of observed phase-two rows in each split.}
 }
 \value{
 A list of class \code{pmtp_control}.
