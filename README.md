@@ -72,7 +72,7 @@ regularity conditions in the [methodological paper](https://arxiv.org/abs/2512.1
 
 ```r
 install.packages("remotes")
-remotes::install_github("aolivasm/proxi-mtp", ref = "v0.1.1")
+remotes::install_github("aolivasm/proxi-mtp", ref = "main")
 library(proximtp)
 ```
 
@@ -108,111 +108,191 @@ must return one finite numeric value per row and must have either one
 argument, `function(a)`, or two arguments, `function(data, treatment)`.
 The latter receives the data frame and the exposure column name.
 
-## A self-contained example
+## Worked example with mock data
 
-Generate an artificial dataset. Although the generator also returns
-latent variables for simulation purposes, only the observed variables
-are supplied to the estimator.
+The package includes the simulated dataset from the original worked
+example, [sim_trial_data.csv](inst/extdata/sim_trial_data.csv).
+It contains 1,000 simulated observations and no real participant data.
+The variables are the binary outcome `Y`, treatment `A`, covariates
+`L1`, `L2`, and `L3`, negative controls `Z` and `W`, and sampling
+weights `wt`.
+
+The complete [example_pmtp.R](inst/examples/example_pmtp.R) script uses
+the original treatment-only and covariate-dependent policies, with
+argument names updated for the current package. The main steps are
+explained below.
 
 ```r
-dat <- simulate_pmtp_dgp(n = 200, seed = 20260902)
-dat <- dat[c("A", "Y", "L", "Z", "W")]
+dat <- read.csv(system.file(
+  "extdata", "sim_trial_data.csv", package = "proximtp", mustWork = TRUE
+))
 ```
 
-In this data-generating mechanism, the exposure has support $[-2,2]$.
-A constant positive shift would move some values beyond that support.
-Instead, the following policy increases exposure by 0.4 units at lower
-values and tapers the increase near the upper boundary. Its image is
-$[-1.6,2]$.
+### Modifying the policy for the entire population
+
+As in the original example, treatment values in the mock data lie
+between 0.39 and 3.50. A constant increase could assign values above
+3.50. We therefore use a policy that adds a specified amount at lower
+treatment values and gradually reduces the increase near the upper
+endpoint. This illustrates the policy-modification strategy described
+above, with the entire population as the target.
 
 ```r
-shift <- function(a) {
-  ifelse(a <= 0.6, a + 0.4, a + (0.4 / 1.4) * (2 - a))
-}
-shift_image <- function(a) as.numeric(a >= -1.6 & a <= 2)
+mock_lower <- 0.39
+mock_upper <- 3.50
 
-# A small tuning grid for learning the interface, not the paper simulations.
+taper <- function(a, delta) {
+  ifelse(
+    a + delta <= mock_upper - 1,
+    a + delta,
+    (delta * mock_upper + a) / (delta + 1)
+  )
+}
+policy_q1 <- function(a) taper(a, 0.4)
+policy_q2 <- function(a) taper(a, 0.8)
+
+# A small tuning grid and low rank for demonstration, not a final analysis.
 quick_control <- pmtp_control_fast(
   seed = 1234,
-  critical_radius_rule = "gaussian_dimension"
+  critical_radius_rule = "gaussian_dimension",
+  kernel_approximation = "nystrom",
+  nystrom_rank = 60
 )
 
 fit <- pmtp(
   data = dat,
   treatment = "A",
   outcome = "Y",
-  covariates = "L",
+  covariates = c("L1", "L2", "L3"),
   negative_control_treatment = "Z",
   negative_control_outcome = "W",
-  policy = list(shift_04 = shift),
-  policy_support = list(shift_04 = shift_image),
+  weights = "wt",
+  policy = list(q1 = policy_q1, q2 = policy_q2),
   control = quick_control
 )
 summary(fit)
 ```
 
+The two estimates are the counterfactual mean outcomes under `q1` and
+`q2`. Sampling weights are supplied through `weights = "wt"`. The mock
+file does not include a known phase-one cohort size, so the function
+uses the sum of those weights as its default `population_size`.
+
+For these monotone, treatment-only policies, the package can calculate
+the policy image from the empirical treatment range; no
+`policy_support` argument is needed in this first example.
+
 The deliberately small grid can produce warnings that the selected
 configuration lies on a grid boundary. Inspect `fit$tuning` and consider
 expanding the relevant grid for a substantive analysis.
 
-### Target population versus policy image
+### Restricting the target population
 
-These arguments have different roles:
+The other strategy is to retain a constant shift and restrict the
+population for which the counterfactual mean is estimated. For example,
+consider a constant increase of 0.5 units and take as the target population
+individuals whose observed treatment is at most 3.00. For these
+individuals, the assigned value does not exceed 3.50.
 
-- `target` identifies the observations whose counterfactual outcomes are
-  averaged: $I\{(A,L)\in\mathcal S\}$.
-- `policy_support` evaluates whether the **observed** exposure–covariate
-  pair belongs to $\mathcal S_q=\{(q(a,l),l):(a,l)\in\mathcal S\}$.
-  It is used in the treatment bridge equation and estimating function.
+Their original treatment values range from 0.39 to 3.00. After adding
+0.5, the values that the policy can assign range from 0.89 to 3.50.
+This latter range is called the **image of the policy**. It describes
+possible assigned treatment values; the target population remains the
+individuals with observed treatment at most 3.00.
 
-For example, a constant shift of 0.4 can instead be considered among
-individuals with $A\leq1.6$. In this example its image is again $[-1.6,2]$:
+The `target` argument specifies that population. The estimator also
+uses the policy image when estimating the treatment bridge. If supplied,
+`policy_support` is a function returning 1 when an observed treatment
+value lies in that image and 0 otherwise. For this example:
 
 ```r
+shift_image <- function(a) as.numeric(a >= 0.89 & a <= 3.5)
+
 restricted_fit <- pmtp(
   data = dat,
-  policy = list(constant_shift = function(a) a + 0.4),
-  target = as.numeric(dat$A <= 1.6),
-  policy_support = list(constant_shift = shift_image),
+  treatment = "A",
+  outcome = "Y",
+  covariates = c("L1", "L2", "L3"),
+  negative_control_treatment = "Z",
+  negative_control_outcome = "W",
+  weights = "wt",
+  policy = list(shift_05 = function(a) a + 0.5),
+  target = as.numeric(dat$A <= 3),
+  policy_support = list(shift_05 = shift_image),
   control = quick_control
 )
+summary(restricted_fit)
 ```
 
-Keep non-target observations in `data`: they can still contribute to
-bridge estimation. Restricting `target` changes the estimand.
+This estimates the mean outcome that would be observed among individuals
+with treatment at most 3.00 if each received 0.5 additional units.
+Keep the full dataset in `data`: observations outside the target
+population can still contribute to bridge estimation.
 
-For monotone, treatment-only policies, omitting `policy_support` asks the
-package to approximate the image using the empirical exposure range in
-the target population. This is not a check of the causal support
-assumptions. Supply the image explicitly when its definition is known;
-this is required for covariate-dependent policies.
+Here the image indicator is supplied explicitly using the known
+mock-data endpoints. For a monotone treatment-only policy it can instead
+be omitted, letting the package approximate the image from the empirical
+treatment range in the target population. Neither approach establishes
+the causal support assumptions; those require scientific justification.
 
 ### A covariate-dependent policy
 
-Use the two-argument interface to access covariates. Here the increase
-depends on `L`, and both the policy and its image use that same rule:
+The original example also allows the increase to depend on `L1`: the
+base increase is 0.4 or 0.8, with an additional 0.2 when `L1 > 50`.
+These policies again taper near 3.50 and target the entire population.
+Use `function(data, treatment)` to access both the exposure and covariates:
 
 ```r
-covariate_shift <- function(data, treatment) {
-  a <- data[[treatment]]
-  delta <- ifelse(data$L < 0, 0.6, 0.4)
-  ifelse(a + delta <= 1, a + delta, a + delta / (delta + 1) * (2 - a))
+policy_q3 <- function(data, treatment) {
+  delta <- 0.4 + 0.2 * (data$L1 > 50)
+  taper(data[[treatment]], delta)
 }
-covariate_image <- function(data, treatment) {
-  delta <- ifelse(data$L < 0, 0.6, 0.4)
-  as.numeric(data[[treatment]] >= -2 + delta & data[[treatment]] <= 2)
+policy_q4 <- function(data, treatment) {
+  delta <- 0.8 + 0.2 * (data$L1 > 50)
+  taper(data[[treatment]], delta)
+}
+```
+
+For a given value of `L1`, a policy with increase `delta` can assign
+treatment values from `0.39 + delta` through `3.50`. Because this range
+now depends on a covariate, provide a corresponding image indicator
+for each policy:
+
+```r
+image_q3 <- function(data, treatment) {
+  delta <- 0.4 + 0.2 * (data$L1 > 50)
+  as.numeric(data[[treatment]] >= mock_lower + delta &
+               data[[treatment]] <= mock_upper)
+}
+image_q4 <- function(data, treatment) {
+  delta <- 0.8 + 0.2 * (data$L1 > 50)
+  as.numeric(data[[treatment]] >= mock_lower + delta &
+               data[[treatment]] <= mock_upper)
 }
 
 covariate_fit <- pmtp(
   data = dat,
-  policy = list(covariate_shift = covariate_shift),
-  policy_support = list(covariate_shift = covariate_image),
+  treatment = "A",
+  outcome = "Y",
+  covariates = c("L1", "L2", "L3"),
+  negative_control_treatment = "Z",
+  negative_control_outcome = "W",
+  weights = "wt",
+  policy = list(q3 = policy_q3, q4 = policy_q4),
+  policy_support = list(q3 = image_q3, q4 = image_q4),
   control = quick_control
 )
+summary(covariate_fit)
 ```
 
-For multiple policies, provide a named list of policy functions and a
-corresponding list of image indicators in the same order.
+For multiple policies, supply image indicators in the same order as
+the policy functions. To run the complete worked example:
+
+```r
+source(system.file(
+  "examples", "example_pmtp.R", package = "proximtp", mustWork = TRUE
+))
+```
 
 ## Bridge estimation, cross-fitting, and tuning
 
@@ -272,35 +352,17 @@ and software checks.
 ## Two-phase sampling
 
 When exposure is measured in a subsample selected with known
-probabilities, supply the phase-two observations, their original
-inverse inclusion probabilities, and the phase-one cohort size.
-For example, using artificial data:
+probabilities, supply the phase-two observations and their original
+inverse inclusion probabilities, as illustrated by `weights = "wt"`
+in the mock example. When the phase-one cohort size is known, also
+supply it through `population_size`.
 
-```r
-phase_one <- simulate_pmtp_dgp(n = 3000, seed = 20260903)
-phase_two <- sample_pmtp_two_phase(
-  phase_one, target_sample_size = 200, seed = 20260904
-)$phase_two
-
-weighted_control <- pmtp_control_fast(
-  seed = 1234,
-  critical_radius_rule = "gaussian_dimension",
-  weighted_loss_normalization = "horvitz_thompson"
-)
-weighted_fit <- pmtp(
-  data = phase_two[c("A", "Y", "L", "Z", "W", "ipw")],
-  policy = list(shift_04 = shift),
-  policy_support = list(shift_04 = shift_image),
-  weights = "ipw",
-  population_size = nrow(phase_one),
-  control = weighted_control
-)
-```
-
-Do not rescale the inverse inclusion probabilities to sum to one.
-Weights enter bridge fitting, validation, preprocessing, and final
-estimation. The small tuning grid above is again for demonstration;
-use the weighted simulation interface to reproduce the paper settings.
+To use the weighted empirical objectives from the paper, set
+`weighted_loss_normalization = "horvitz_thompson"` in
+`pmtp_control()`. Do not rescale inverse inclusion probabilities to
+sum to one. Weights enter bridge fitting, validation, preprocessing,
+and final estimation. Set `weights = NULL` for unweighted estimation
+when sampling weights are not needed.
 
 ## Returned results
 
