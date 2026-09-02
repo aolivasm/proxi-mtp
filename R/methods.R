@@ -15,9 +15,18 @@ summary.pmtp_fit <- function(object, conf_level = 0.95, ...) {
     stop("`conf_level` must lie strictly between zero and one.", call. = FALSE)
   }
   out <- object$estimates
+  support <- do.call(cbind, object$policy_support)
+  weighted_target <- object$weights * object$target
+  out$image_proportion <- as.numeric(
+    colSums(support * weighted_target) / sum(weighted_target)
+  )
   critical <- stats::qnorm(1 - (1 - conf_level) / 2)
   out$conf_low <- out$estimate - critical * out$std_error
   out$conf_high <- out$estimate + critical * out$std_error
+  out <- out[c(
+    "policy", "image_proportion", "estimate", "std_error",
+    "conf_low", "conf_high"
+  )]
   attr(out, "conf_level") <- conf_level
   class(out) <- c("summary_pmtp_fit", class(out))
   out

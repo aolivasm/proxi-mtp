@@ -7,7 +7,7 @@ match_parametric_outcome_model <- function(model) {
 }
 
 match_parametric_treatment_model <- function(model) {
-  match.arg(model, c("correct", "constant_v"))
+  match.arg(model, c("correct", "constant_v", "log_linear"))
 }
 
 parametric_outcome_dimension <- function(model) {
@@ -40,6 +40,10 @@ pmtp_parametric_g_model_value <- function(
   }
   if (length(eta) != 4L || anyNA(eta) || any(!is.finite(eta))) {
     stop("`eta` must contain four finite values.", call. = FALSE)
+  }
+  if (identical(treatment_model, "log_linear")) {
+    log_bridge <- eta[1] * a + eta[2] * l + eta[3] * z + eta[4]
+    return(exp(pmin(pmax(log_bridge, -700), 700)))
   }
   v <- pmtp_policy_v(a, spec)
   upper_component <- if (spec$epsilon == 0) {
@@ -103,7 +107,7 @@ outcome_bridge_jacobian <- function(
 
 treatment_bridge_moments <- function(
     eta, data, weights, spec,
-    treatment_model = c("correct", "constant_v")) {
+    treatment_model = c("correct", "constant_v", "log_linear")) {
   treatment_model <- match_parametric_treatment_model(treatment_model)
   target <- pmtp_policy_target(data$A, spec)
   q_a <- pmtp_taper_policy(data$A, spec)
@@ -122,12 +126,19 @@ treatment_bridge_moments <- function(
 
 treatment_bridge_jacobian <- function(
     eta, data, weights, spec,
-    treatment_model = c("correct", "constant_v")) {
+    treatment_model = c("correct", "constant_v", "log_linear")) {
   treatment_model <- match_parametric_treatment_model(treatment_model)
   policy_v <- pmtp_policy_v(data$A, spec)
   bridge <- pmtp_parametric_g_model_value(
     data$A, data$L, data$Z, eta, spec, treatment_model
   )
+  if (identical(treatment_model, "log_linear")) {
+    derivative <- bridge * cbind(data$A, data$L, data$Z, 1)
+    observed_instruments <- cbind(1, data$A, data$L, data$W)
+    return(
+      -crossprod(observed_instruments, weights * derivative) / sum(weights)
+    )
+  }
   normalizer_denominator <-
     stats::pnorm(3 - eta[3] * policy_v) -
     stats::pnorm(-3 - eta[3] * policy_v)
@@ -149,7 +160,7 @@ treatment_bridge_jacobian <- function(
 parametric_estimating_system <- function(
     parameters, data, weights, population_size, truncated_variance, spec,
     outcome_model = c("correct", "omit_quadratic"),
-    treatment_model = c("correct", "constant_v")) {
+    treatment_model = c("correct", "constant_v", "log_linear")) {
   outcome_model <- match_parametric_outcome_model(outcome_model)
   treatment_model <- match_parametric_treatment_model(treatment_model)
   outcome_dimension <- parametric_outcome_dimension(outcome_model)
@@ -196,19 +207,25 @@ parametric_estimating_system <- function(
   treatment_moments <-
     shifted_instruments - observed_instruments * g0
   policy_v <- pmtp_policy_v(data$A, spec)
-  normalizer_denominator <-
-    stats::pnorm(3 - eta[3] * policy_v) -
-    stats::pnorm(-3 - eta[3] * policy_v)
-  normalizer_derivative <- policy_v * (
-    stats::dnorm(3 - eta[3] * policy_v) -
-      stats::dnorm(-3 - eta[3] * policy_v)
-  ) / normalizer_denominator
-  treatment_log_derivative <- cbind(
-    data$A * policy_v,
-    data$L * policy_v,
-    data$Z * policy_v + normalizer_derivative,
-    if (identical(treatment_model, "correct")) policy_v^2 else policy_v
-  )
+  if (identical(treatment_model, "log_linear")) {
+    treatment_log_derivative <- cbind(
+      data$A, data$L, data$Z, 1
+    )
+  } else {
+    normalizer_denominator <-
+      stats::pnorm(3 - eta[3] * policy_v) -
+      stats::pnorm(-3 - eta[3] * policy_v)
+    normalizer_derivative <- policy_v * (
+      stats::dnorm(3 - eta[3] * policy_v) -
+        stats::dnorm(-3 - eta[3] * policy_v)
+    ) / normalizer_denominator
+    treatment_log_derivative <- cbind(
+      data$A * policy_v,
+      data$L * policy_v,
+      data$Z * policy_v + normalizer_derivative,
+      if (identical(treatment_model, "correct")) policy_v^2 else policy_v
+    )
+  }
   treatment_derivative <- g0 * treatment_log_derivative
 
   weight_total <- sum(weights)
@@ -323,7 +340,7 @@ parametric_inference <- function(
     phi, eta, estimates, data, weights, population_size,
     truncated_variance, spec,
     outcome_model = c("correct", "omit_quadratic"),
-    treatment_model = c("correct", "constant_v")) {
+    treatment_model = c("correct", "constant_v", "log_linear")) {
   outcome_model <- match_parametric_outcome_model(outcome_model)
   treatment_model <- match_parametric_treatment_model(treatment_model)
   parameters <- c(
@@ -566,7 +583,8 @@ solve_bridge_moments <- function(
 }
 
 initial_outcome_coefficients <- function(
-    data, outcome_model = c("correct", "omit_quadratic")) {
+    data, weights,
+    outcome_model = c("correct", "omit_quadratic")) {
   outcome_model <- match_parametric_outcome_model(outcome_model)
   design <- if (identical(outcome_model, "correct")) {
     cbind(1, data$A, data$L, data$W, data$A^2)
@@ -574,13 +592,52 @@ initial_outcome_coefficients <- function(
     cbind(1, data$A, data$L, data$W)
   }
   fit <- suppressWarnings(tryCatch(
-    stats::glm.fit(design, data$Y, family = stats::binomial()),
+    stats::glm.fit(
+      design, data$Y, weights = weights,
+      family = stats::binomial()
+    ),
     error = function(e) NULL
   ))
   if (is.null(fit)) return(rep(0, ncol(design)))
   coefficients <- fit$coefficients
   coefficients[!is.finite(coefficients)] <- 0
   unname(coefficients)
+}
+
+data_only_outcome_starts <- function(data, weights, outcome_model) {
+  initial <- initial_outcome_coefficients(
+    data, weights, outcome_model
+  )
+  dimension <- length(initial)
+  intercept_up <- initial
+  intercept_up[1L] <- intercept_up[1L] + 0.5
+  intercept_down <- initial
+  intercept_down[1L] <- intercept_down[1L] - 0.5
+  proxy_up <- initial
+  proxy_up[4L] <- proxy_up[4L] + 0.5
+  proxy_down <- initial
+  proxy_down[4L] <- proxy_down[4L] - 0.5
+  unique_starts(list(
+    initial,
+    0.5 * initial,
+    rep(0, dimension),
+    1.5 * initial,
+    intercept_up,
+    intercept_down,
+    proxy_up,
+    proxy_down
+  ))
+}
+
+data_only_treatment_starts <- function() {
+  list(
+    rep(0, 4L),
+    c(0.1, 0, -0.1, -0.1),
+    c(-0.1, 0, 0.1, -0.1),
+    c(0.5, 0, -0.5, -0.5),
+    c(-0.5, 0, 0.5, -0.5),
+    c(0, 0, 0, 0.5)
+  )
 }
 
 prepare_parametric_inputs <- function(
@@ -632,9 +689,9 @@ solve_parametric_outcome_bridge <- function(
       call. = FALSE
     )
   }
-  starts <- list(
-    initial_outcome_coefficients(data, outcome_model),
-    rep(0, dimension)
+  initialization <- if (is.null(start_h)) "data_only" else "user_supplied"
+  starts <- data_only_outcome_starts(
+    data, weights, outcome_model
   )
   if (!is.null(start_h)) {
     start_h <- as.numeric(start_h)
@@ -657,10 +714,10 @@ solve_parametric_outcome_bridge <- function(
         seq_len(nrow(perturbations)),
         function(index) start_h + perturbations[index, ]
       )
-      starts <- c(list(start_h), perturbed, starts[-1L])
+      starts <- c(list(start_h), perturbed, starts)
     }
   }
-  solve_bridge_moments(
+  solution <- solve_bridge_moments(
     function(phi) {
       outcome_bridge_moments(
         phi, data, weights, truncated_variance, outcome_model
@@ -674,6 +731,8 @@ solve_parametric_outcome_bridge <- function(
       )
     }
   )
+  solution$initialization <- initialization
+  solution
 }
 
 solve_parametric_treatment_bridge <- function(
@@ -683,9 +742,10 @@ solve_parametric_treatment_bridge <- function(
       (length(start_g) != 4L || any(!is.finite(start_g)))) {
     stop("`start_g` must contain four finite values.", call. = FALSE)
   }
-  starts <- list(rep(0, 4L), c(0.1, 0, -0.1, -0.1))
+  initialization <- if (is.null(start_g)) "data_only" else "user_supplied"
+  starts <- data_only_treatment_starts()
   if (!is.null(start_g)) starts <- c(list(as.numeric(start_g)), starts)
-  solve_bridge_moments(
+  solution <- solve_bridge_moments(
     function(eta) {
       treatment_bridge_moments(
         eta, data, weights, spec, treatment_model
@@ -699,6 +759,8 @@ solve_parametric_treatment_bridge <- function(
       )
     }
   )
+  solution$initialization <- initialization
+  solution
 }
 
 parametric_estimate_table <- function(
@@ -785,10 +847,12 @@ assemble_parametric_fit <- function(
     converged = c(h = h_solution$converged, g = g_solution$converged),
     solver = list(
       h = h_solution[c(
-        "method", "convergence", "solution_type", "stationarity_norm"
+        "method", "convergence", "solution_type", "stationarity_norm",
+        "initialization"
       )],
       g = g_solution[c(
-        "method", "convergence", "solution_type", "stationarity_norm"
+        "method", "convergence", "solution_type", "stationarity_norm",
+        "initialization"
       )]
     ),
     nuisance = list(h0 = h0, hq = hq, g0 = g0),
@@ -807,6 +871,9 @@ assemble_parametric_fit <- function(
   ), class = "pmtp_parametric_fit")
 }
 
+# Internal compatibility helpers for archived source-condition experiments.
+# The exported paper estimators do not call these helpers: their default
+# initialization uses observed-data or fixed generic starting values.
 paper_parametric_start_h <- function(spec, fallback) {
   if (abs(unname(spec$beta[["beta8"]])) > 1e-12 ||
       abs(unname(spec$beta[["beta12"]])) > 1e-12) {
@@ -878,8 +945,10 @@ paper_parametric_start_g_misspecified <- function(spec, fallback) {
 #'   used in Supplement C.3.
 #' @param treatment_model Treatment-bridge specification. `"correct"` includes
 #'   `eta_3 * V(a)` inside the exponential's linear predictor;
-#'   `"constant_v"` replaces that term with the constant `eta_3`, as in the
-#'   supplement's misspecified model.
+#'   `"constant_v"` replaces that term with the constant `eta_3` while retaining
+#'   the known policy structure; `"log_linear"` is the deliberately
+#'   misspecified model used in the original simulation code and omits the
+#'   policy-support, normalizing, and `V(a)` terms.
 #' @param start_h,start_g Optional starting coefficients for the outcome and
 #'   treatment bridge estimating equations.
 #' @param max_iterations Maximum iterations for each numerical solver.
@@ -893,7 +962,8 @@ pmtp_parametric <- function(data, spec = pmtp_dgp_spec(), weights = NULL,
                             start_h = NULL, start_g = NULL,
                             max_iterations = 500L,
                             outcome_model = c("correct", "omit_quadratic"),
-                            treatment_model = c("correct", "constant_v")) {
+                            treatment_model =
+                              c("correct", "constant_v", "log_linear")) {
   outcome_model <- match_parametric_outcome_model(outcome_model)
   treatment_model <- match_parametric_treatment_model(treatment_model)
   inputs <- prepare_parametric_inputs(
@@ -927,6 +997,10 @@ pmtp_parametric <- function(data, spec = pmtp_dgp_spec(), weights = NULL,
 #'   correct and misspecified outcome bridge models.
 #' @param start_g_correct,start_g_misspecified Optional starting values for the
 #'   correct and misspecified treatment bridge models.
+#' @param misspecified_treatment_model Treatment-bridge model used for the
+#'   deliberately misspecified estimators. The default `"log_linear"`
+#'   reproduces the original simulation code. `"constant_v"` retains the known
+#'   policy structure and provides a milder sensitivity analysis.
 #'
 #' @return An object of class `pmtp_parametric_suite` containing the eight
 #'   estimates, their joint covariance matrix and influence functions, the
@@ -937,28 +1011,16 @@ pmtp_parametric_suite <- function(
     data, spec = pmtp_dgp_spec(), weights = NULL, population_size = NULL,
     start_h_correct = NULL, start_h_misspecified = NULL,
     start_g_correct = NULL, start_g_misspecified = NULL,
-    max_iterations = 500L) {
+    max_iterations = 500L,
+    misspecified_treatment_model = c("log_linear", "constant_v")) {
+  misspecified_treatment_model <- match.arg(
+    misspecified_treatment_model,
+    c("log_linear", "constant_v")
+  )
   inputs <- prepare_parametric_inputs(
     data, spec, weights, population_size, max_iterations
   )
   bridge_parameters <- pmtp_analytic_bridge_parameters(inputs$spec)
-  if (is.null(start_h_correct)) {
-    start_h_correct <- paper_parametric_start_h(
-      inputs$spec, bridge_parameters$phi
-    )
-  }
-  if (is.null(start_h_misspecified)) {
-    start_h_misspecified <- start_h_correct[seq_len(4L)]
-  }
-  if (is.null(start_g_correct)) {
-    start_g_correct <- bridge_parameters$eta
-  }
-  if (is.null(start_g_misspecified)) {
-    start_g_misspecified <- paper_parametric_start_g_misspecified(
-      inputs$spec, bridge_parameters$eta
-    )
-  }
-
   h_solutions <- list(
     correct = solve_parametric_outcome_bridge(
       inputs$data, inputs$weights, bridge_parameters$truncated_variance,
@@ -975,7 +1037,8 @@ pmtp_parametric_suite <- function(
       start_g_correct, inputs$max_iterations
     ),
     misspecified = solve_parametric_treatment_bridge(
-      inputs$data, inputs$weights, inputs$spec, "constant_v",
+      inputs$data, inputs$weights, inputs$spec,
+      misspecified_treatment_model,
       start_g_misspecified, inputs$max_iterations
     )
   )
@@ -986,7 +1049,11 @@ pmtp_parametric_suite <- function(
       inputs$weighted, bridge_parameters,
       h_solutions[[h_name]], g_solutions[[g_name]],
       if (identical(h_name, "correct")) "correct" else "omit_quadratic",
-      if (identical(g_name, "correct")) "correct" else "constant_v"
+      if (identical(g_name, "correct")) {
+        "correct"
+      } else {
+        misspecified_treatment_model
+      }
     )
   }
   fits <- list(
@@ -1079,8 +1146,111 @@ pmtp_parametric_suite <- function(
     weights = inputs$weights,
     population_size = inputs$population_size,
     weighted = inputs$weighted,
+    misspecified_treatment_model = misspecified_treatment_model,
     spec = inputs$spec
   ), class = "pmtp_parametric_suite")
+}
+
+pmtp_parametric_misspecified_g_suite <- function(
+    data, spec = pmtp_dgp_spec(), weights = NULL, population_size = NULL,
+    start_h_correct = NULL, start_h_misspecified = NULL,
+    start_g_misspecified = NULL, max_iterations = 500L,
+    misspecified_treatment_model = c("log_linear", "constant_v")) {
+  misspecified_treatment_model <- match.arg(
+    misspecified_treatment_model,
+    c("log_linear", "constant_v")
+  )
+  inputs <- prepare_parametric_inputs(
+    data, spec, weights, population_size, max_iterations
+  )
+  bridge_parameters <- pmtp_analytic_bridge_parameters(inputs$spec)
+  h_solutions <- list(
+    correct = solve_parametric_outcome_bridge(
+      inputs$data, inputs$weights, bridge_parameters$truncated_variance,
+      "correct", start_h_correct, inputs$max_iterations
+    ),
+    misspecified = solve_parametric_outcome_bridge(
+      inputs$data, inputs$weights, bridge_parameters$truncated_variance,
+      "omit_quadratic", start_h_misspecified, inputs$max_iterations
+    )
+  )
+  g_solution <- solve_parametric_treatment_bridge(
+    inputs$data, inputs$weights, inputs$spec,
+    misspecified_treatment_model, start_g_misspecified,
+    inputs$max_iterations
+  )
+  fits <- list(
+    h_correct_g_misspecified = assemble_parametric_fit(
+      inputs$data, inputs$spec, inputs$weights, inputs$population_size,
+      inputs$weighted, bridge_parameters,
+      h_solutions$correct, g_solution,
+      "correct", misspecified_treatment_model
+    ),
+    h_misspecified_g_misspecified = assemble_parametric_fit(
+      inputs$data, inputs$spec, inputs$weights, inputs$population_size,
+      inputs$weighted, bridge_parameters,
+      h_solutions$misspecified, g_solution,
+      "omit_quadratic", misspecified_treatment_model
+    )
+  )
+  estimates <- c(
+    DQW_g_misspecified =
+      fits$h_correct_g_misspecified$estimates[["DQW"]],
+    DR_h_correct_g_misspecified =
+      fits$h_correct_g_misspecified$estimates[["DR"]],
+    DR_h_misspecified_g_misspecified =
+      fits$h_misspecified_g_misspecified$estimates[["DR"]]
+  )
+  influence_function <- cbind(
+    DQW_g_misspecified =
+      fits$h_correct_g_misspecified$influence_function[, "DQW"],
+    DR_h_correct_g_misspecified =
+      fits$h_correct_g_misspecified$influence_function[, "DR"],
+    DR_h_misspecified_g_misspecified =
+      fits$h_misspecified_g_misspecified$influence_function[, "DR"]
+  )
+  weighted_influence <- inputs$weights * influence_function
+  covariance <- crossprod(weighted_influence) / inputs$population_size^2
+  standard_error <- sqrt(pmax(diag(covariance), 0))
+  names(standard_error) <- names(estimates)
+  dimnames(covariance) <- list(names(estimates), names(estimates))
+
+  structure(list(
+    estimates = estimates,
+    standard_error = standard_error,
+    estimate_table = parametric_estimate_table(
+      estimates, standard_error
+    ),
+    covariance = covariance,
+    influence_function = influence_function,
+    fits = fits,
+    bridge_solutions = list(h = h_solutions, g = g_solution),
+    converged = c(
+      h_correct = h_solutions$correct$converged,
+      h_misspecified = h_solutions$misspecified$converged,
+      g_misspecified = g_solution$converged
+    ),
+    residual_norm = c(
+      h_correct = h_solutions$correct$residual_norm,
+      h_misspecified = h_solutions$misspecified$residual_norm,
+      g_misspecified = g_solution$residual_norm
+    ),
+    stationarity_norm = c(
+      h_correct = h_solutions$correct$stationarity_norm,
+      h_misspecified = h_solutions$misspecified$stationarity_norm,
+      g_misspecified = g_solution$stationarity_norm
+    ),
+    solution_type = c(
+      h_correct = h_solutions$correct$solution_type,
+      h_misspecified = h_solutions$misspecified$solution_type,
+      g_misspecified = g_solution$solution_type
+    ),
+    weights = inputs$weights,
+    population_size = inputs$population_size,
+    weighted = inputs$weighted,
+    misspecified_treatment_model = misspecified_treatment_model,
+    spec = inputs$spec
+  ), class = "pmtp_parametric_misspecified_g_suite")
 }
 
 #' @export

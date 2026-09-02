@@ -13,7 +13,7 @@ pmtp_parametric(
   start_g = NULL,
   max_iterations = 500L,
   outcome_model = c("correct", "omit_quadratic"),
-  treatment_model = c("correct", "constant_v")
+  treatment_model = c("correct", "constant_v", "log_linear")
 )
 }
 \arguments{
@@ -41,8 +41,10 @@ used in Supplement C.3.}
 
 \item{treatment_model}{Treatment-bridge specification. \code{"correct"} includes
 \code{eta_3 * V(a)} inside the exponential's linear predictor;
-\code{"constant_v"} replaces that term with the constant \code{eta_3}, as in the
-supplement's misspecified model.}
+\code{"constant_v"} replaces that term with the constant \code{eta_3} while retaining
+the known policy structure; \code{"log_linear"} is the deliberately
+misspecified model used in the original simulation code and omits the
+policy-support, normalizing, and \code{V(a)} terms.}
 }
 \value{
 An object of class \code{pmtp_parametric_fit} containing estimates,

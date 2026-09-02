@@ -146,7 +146,6 @@ test_that("weighted target denominator and two-phase variance are coherent", {
     policy = list(identity = function(a) a),
     weights = "sampling_weight",
     target = "target",
-    population_size = sum(data$sampling_weight),
     control = minimal_control()
   )
 
@@ -159,9 +158,16 @@ test_that("weighted target denominator and two-phase variance are coherent", {
   expected_se <- sqrt(expected_tau2 / fit$population_size)
 
   expect_equal(coef(fit)[[1]], expected_estimate)
+  expect_equal(fit$population_size, sum(data$sampling_weight))
   expect_equal(fit$target_probability, denominator / fit$population_size)
   expect_equal(fit$asymptotic_variance[[1]], expected_tau2)
   expect_equal(fit$estimates$std_error[[1]], expected_se)
+  expect_equal(
+    summary(fit)$image_proportion[[1]],
+    sum(
+      data$sampling_weight * data$target * fit$policy_support[[1]]
+    ) / denominator
+  )
 })
 
 test_that("common rescaling of sampling weights leaves the fit unchanged", {

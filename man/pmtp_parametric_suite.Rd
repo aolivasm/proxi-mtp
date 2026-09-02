@@ -13,7 +13,8 @@ pmtp_parametric_suite(
   start_h_misspecified = NULL,
   start_g_correct = NULL,
   start_g_misspecified = NULL,
-  max_iterations = 500L
+  max_iterations = 500L,
+  misspecified_treatment_model = c("log_linear", "constant_v")
 )
 }
 \arguments{
@@ -37,6 +38,11 @@ correct and misspecified outcome bridge models.}
 correct and misspecified treatment bridge models.}
 
 \item{max_iterations}{Maximum iterations for each numerical solver.}
+
+\item{misspecified_treatment_model}{Treatment-bridge model used for the
+deliberately misspecified estimators. The default \code{"log_linear"}
+reproduces the original simulation code. \code{"constant_v"} retains the known
+policy structure and provides a milder sensitivity analysis.}
 }
 \value{
 An object of class \code{pmtp_parametric_suite} containing the eight

@@ -71,6 +71,8 @@ test_that("full-rank Sobolev Nyström reproduces exact bridge predictions", {
 })
 
 test_that("Sobolev diagonal launcher defines the prespecified 12 cells", {
+  skip_if_not(file.exists(test_path("../../simulation/run-sobolev-diagonal.R")),
+              "Repository-only simulation integration test")
   environment <- new.env(parent = globalenv())
   sys.source(
     testthat::test_path("../../simulation/run-sobolev-diagonal.R"),
@@ -111,6 +113,8 @@ test_that("Sobolev diagonal launcher defines the prespecified 12 cells", {
 })
 
 test_that("wide Sobolev calibration extends every truncated tuning boundary", {
+  skip_if_not(file.exists(test_path("../../simulation/run-paper-dgp-study.R")),
+              "Repository-only simulation integration test")
   environment <- new.env(parent = globalenv())
   sys.source(
     testthat::test_path("../../simulation/run-paper-dgp-study.R"),

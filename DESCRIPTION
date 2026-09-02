@@ -1,6 +1,6 @@
 Package: proximtp
 Title: Proximal Estimation for Modified Treatment Policies
-Version: 0.1.0.9000
+Version: 0.1.0
 Authors@R: c(
     person(
       given = "Antonio",
@@ -13,8 +13,9 @@ Author: Antonio Olivas-Martinez [aut, cre]
 Maintainer: Antonio Olivas-Martinez <antonio.olivas@gmail.com>
 Description: Estimates counterfactual means under modified treatment policies
     using proximal causal inference. Outcome and treatment bridge functions are
-    learned in Gaussian reproducing kernel Hilbert spaces with weighted minimax
-    objectives, nested cross-validation, and outer cross-fitting. Inverse
+    learned in Gaussian or Matern-Sobolev reproducing kernel Hilbert spaces
+    with weighted minimax objectives, nested cross-validation, and outer
+    cross-fitting. Inverse
     probability weights for two-phase sampling are supported.
 License: MIT + file LICENSE
 URL: https://github.com/aolivasm/proxi-mtp

@@ -332,6 +332,31 @@ test_that("parametric treatment-bridge derivatives include normalization", {
   expect_equal(unname(numerical), unname(expected), tolerance = 1e-6)
 })
 
+test_that("legacy log-linear treatment bridge omits policy structure", {
+  spec <- pmtp_dgp_spec()
+  data <- simulate_pmtp_dgp(60, spec, seed = 20260728)
+  eta <- c(0.2, -0.1, 0.3, -0.4)
+  expected <- exp(
+    eta[1] * data$A + eta[2] * data$L + eta[3] * data$Z + eta[4]
+  )
+
+  observed <- pmtp_parametric_g_model_value(
+    data$A, data$L, data$Z, eta, spec, "log_linear"
+  )
+  expect_equal(observed, expected, tolerance = 1e-14)
+
+  numerical <- finite_difference_jacobian(
+    function(candidate) {
+      pmtp_parametric_g_model_value(
+        data$A, data$L, data$Z, candidate, spec, "log_linear"
+      )
+    },
+    eta
+  )
+  derivative <- expected * cbind(data$A, data$L, data$Z, 1)
+  expect_equal(unname(numerical), unname(derivative), tolerance = 1e-7)
+})
+
 test_that("parametric solver labels a finite minimum-distance solution", {
   solution <- solve_bridge_moments(
     function(theta) theta^2 + 1,
@@ -347,28 +372,51 @@ test_that("parametric solver labels a finite minimum-distance solution", {
   expect_lt(solution$stationarity_norm, 1e-6)
 })
 
-test_that("case-2 parametric fits do not reuse case-1 calibrated starts", {
+test_that("default parametric starts use only the observed data", {
   spec <- pmtp_dgp_spec(
     beta_z = 2, beta_w = -2,
     beta8 = 0.3, beta12 = -0.3
   )
-  fallback_h <- seq_len(5)
-  fallback_g <- seq_len(4)
-
-  expect_equal(
-    paper_parametric_start_h(spec, fallback_h),
-    fallback_h
-  )
-  expect_equal(
-    paper_parametric_start_g_misspecified(spec, fallback_g),
-    fallback_g
-  )
-
   data <- simulate_pmtp_dgp(750, spec, seed = 20300724)
+  weights <- rep(1, nrow(data))
+  h_starts <- data_only_outcome_starts(data, weights, "correct")
+  g_starts <- data_only_treatment_starts()
+
+  expect_true(length(h_starts) >= 2L)
+  expect_true(length(g_starts) >= 2L)
+  expect_true(all(vapply(
+    h_starts, function(value) {
+      length(value) == 5L && all(is.finite(value))
+    }, logical(1L)
+  )))
+  expect_true(all(vapply(
+    g_starts, function(value) {
+      length(value) == 4L && all(is.finite(value))
+    }, logical(1L)
+  )))
+  expect_false("spec" %in% names(formals(data_only_outcome_starts)))
+  expect_length(formals(data_only_treatment_starts), 0L)
+
   fit <- pmtp_parametric(data, spec)
   expect_true(all(fit$converged))
   expect_true(all(is.finite(fit$standard_error)))
   expect_true(all(fit$standard_error > 0))
+  expect_identical(fit$solver$h$initialization, "data_only")
+  expect_identical(fit$solver$g$initialization, "data_only")
+
+  explicit <- pmtp_parametric(
+    data, spec,
+    start_h = rep(0, 5L),
+    start_g = rep(0, 4L)
+  )
+  expect_identical(
+    explicit$solver$h$initialization,
+    "user_supplied"
+  )
+  expect_identical(
+    explicit$solver$g$initialization,
+    "user_supplied"
+  )
 })
 
 test_that("parametric suite shares the four supplement bridge fits", {
@@ -393,6 +441,11 @@ test_that("parametric suite shares the four supplement bridge fits", {
   expect_length(suite$bridge_solutions$h$misspecified$coefficients, 4L)
   expect_length(suite$bridge_solutions$g$correct$coefficients, 4L)
   expect_length(suite$bridge_solutions$g$misspecified$coefficients, 4L)
+  expect_true(all(vapply(
+    c(suite$bridge_solutions$h, suite$bridge_solutions$g),
+    function(solution) identical(solution$initialization, "data_only"),
+    logical(1L)
+  )))
   expect_equal(
     unname(standalone$estimates),
     unname(coef(suite)[c(
@@ -434,7 +487,7 @@ test_that("individual misspecified parametric models match suite components", {
   g_misspecified <- pmtp_parametric(
     data, spec,
     outcome_model = "correct",
-    treatment_model = "constant_v"
+    treatment_model = "log_linear"
   )
 
   expect_equal(
@@ -458,5 +511,36 @@ test_that("individual misspecified parametric models match suite components", {
     tolerance = 1e-9
   )
   expect_identical(h_misspecified$models$outcome, "omit_quadratic")
-  expect_identical(g_misspecified$models$treatment, "constant_v")
+  expect_identical(g_misspecified$models$treatment, "log_linear")
+  expect_identical(suite$misspecified_treatment_model, "log_linear")
+})
+
+test_that("focused misspecified-g suite reproduces the affected estimators", {
+  spec <- pmtp_dgp_spec()
+  data <- simulate_pmtp_dgp(400, spec, seed = 20260729)
+  full <- pmtp_parametric_suite(data, spec)
+  focused <- pmtp_parametric_misspecified_g_suite(data, spec)
+  affected <- c(
+    "DQW_g_misspecified",
+    "DR_h_correct_g_misspecified",
+    "DR_h_misspecified_g_misspecified"
+  )
+
+  expect_identical(names(focused$estimates), affected)
+  expect_equal(
+    focused$estimates,
+    full$estimates[affected],
+    tolerance = 1e-10
+  )
+  expect_equal(
+    focused$standard_error,
+    full$standard_error[affected],
+    tolerance = 1e-10
+  )
+  expect_equal(
+    focused$covariance,
+    full$covariance[affected, affected],
+    tolerance = 1e-10
+  )
+  expect_identical(focused$misspecified_treatment_model, "log_linear")
 })

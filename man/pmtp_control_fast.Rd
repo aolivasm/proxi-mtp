@@ -11,7 +11,7 @@ pmtp_control_fast(
   progress = FALSE,
   selection_rule = "minimum",
   inner_repeats = 1L,
-  critical_radius_rule = c("legacy_d1", "gaussian_dimension"),
+  critical_radius_rule = c("legacy_d1", "gaussian_dimension", "matern_sobolev"),
   kernel_approximation = c("exact", "nystrom"),
   nystrom_rank = pmtp_nystrom_rank(),
   nystrom_landmarks = c("uniform", "weighted"),
@@ -51,10 +51,11 @@ evaluations while preserving the training fraction of \code{inner_folds}.}
 
 \item{critical_radius_rule}{Penalty-rate rule. \code{"legacy_d1"} preserves the
 preprint implementation, using \code{log(n)} as though every Gaussian RKHS had
-dimension one. The experimental \code{"gaussian_dimension"} rule uses
+dimension one. The \code{"gaussian_dimension"} rule used in the revised paper uses
 \code{log(n)^d}, where \code{d} is the number of columns in the relevant bridge or
 adversarial-kernel input. The number of observed rows in each fold remains
-the sample-size argument under either rule.}
+the sample-size argument. The \code{"matern_sobolev"} rule uses the polynomial
+critical-radius rate determined by the input dimension and \code{sobolev_l}.}
 
 \item{kernel_approximation}{Kernel backend. \code{"exact"} uses the complete
 fold-specific Gram matrices. \code{"nystrom"} uses fold-specific Nystrom
@@ -85,8 +86,8 @@ equivalent to a Sobolev space.}
 
 \item{weighted_loss_normalization}{Normalization for weighted empirical
 bridge losses. \code{"hajek"} divides each fold-specific weighted sum by the
-sum of its inverse-probability weights and preserves the implementation
-used for the completed simulations. \code{"horvitz_thompson"} divides by the
+sum of its inverse-probability weights and preserves earlier analyses.
+\code{"horvitz_thompson"}, used in the revised paper, divides by the
 corresponding phase-one fold size, matching the estimator displayed in
 the paper. The latter requires \code{population_size} in \code{\link[=pmtp]{pmtp()}} for an exact
 full-sample normalization; fold sizes are allocated in proportion to the

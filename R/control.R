@@ -31,10 +31,11 @@
 #'   validation risks.
 #' @param critical_radius_rule Penalty-rate rule. `"legacy_d1"` preserves the
 #'   preprint implementation, using `log(n)` as though every Gaussian RKHS had
-#'   dimension one. The experimental `"gaussian_dimension"` rule uses
+#'   dimension one. The `"gaussian_dimension"` rule used in the revised paper uses
 #'   `log(n)^d`, where `d` is the number of columns in the relevant bridge or
 #'   adversarial-kernel input. The number of observed rows in each fold remains
-#'   the sample-size argument under either rule.
+#'   the sample-size argument. The `"matern_sobolev"` rule uses the polynomial
+#'   critical-radius rate determined by the input dimension and `sobolev_l`.
 #' @param selection_rule Cross-validation selection rule. `"minimum"` selects
 #'   the smallest mean validation risk. The experimental
 #'   `"one_se_regularized"` rule forms a one-standard-error set using the
@@ -74,8 +75,8 @@
 #'   `matern_smoothness`.
 #' @param weighted_loss_normalization Normalization for weighted empirical
 #'   bridge losses. `"hajek"` divides each fold-specific weighted sum by the
-#'   sum of its inverse-probability weights and preserves the implementation
-#'   used for the completed simulations. `"horvitz_thompson"` divides by the
+#'   sum of its inverse-probability weights and preserves earlier analyses.
+#'   `"horvitz_thompson"`, used in the revised paper, divides by the
 #'   corresponding phase-one fold size, matching the estimator displayed in
 #'   the paper. The latter requires `population_size` in [pmtp()] for an exact
 #'   full-sample normalization; fold sizes are allocated in proportion to the
@@ -289,7 +290,8 @@ pmtp_control_fast <- function(outer_folds = 3L, inner_folds = 2L,
                               selection_rule = "minimum",
                               inner_repeats = 1L,
                               critical_radius_rule = c(
-                                "legacy_d1", "gaussian_dimension"
+                                "legacy_d1", "gaussian_dimension",
+                                "matern_sobolev"
                               ),
                               kernel_approximation = c("exact", "nystrom"),
                               nystrom_rank = pmtp_nystrom_rank(),
