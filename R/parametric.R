@@ -871,54 +871,6 @@ assemble_parametric_fit <- function(
   ), class = "pmtp_parametric_fit")
 }
 
-# Internal compatibility helpers for archived source-condition experiments.
-# The exported paper estimators do not call these helpers: their default
-# initialization uses observed-data or fixed generic starting values.
-paper_parametric_start_h <- function(spec, fallback) {
-  if (abs(unname(spec$beta[["beta8"]])) > 1e-12 ||
-      abs(unname(spec$beta[["beta12"]])) > 1e-12) {
-    return(fallback)
-  }
-  calibrated <- rbind(
-    `-2` = c(
-      -1.19960935243, -1.48333752394, 0.237030425319,
-      0.471832194950, -0.742492117225
-    ),
-    `-1` = c(
-      -1.64333565913, -1.47560415970, 0.00425279455721,
-      0.879024663645, -0.736654844877
-    ),
-    `-0.5` = c(
-      -2.99444625370, -1.51880248120, -0.423736151791,
-      1.696944153087, -0.755909320377
-    ),
-    `-0.25` = c(
-      -7.4326, -1.8163, -1.3801, 3.6970, -0.86994
-    )
-  )
-  proxy_coefficient <- unname(spec$beta[["beta5"]])
-  index <- which(
-    abs(as.numeric(rownames(calibrated)) - proxy_coefficient) < 1e-12
-  )
-  if (length(index) == 1L) unname(calibrated[index, ]) else fallback
-}
-
-paper_parametric_start_g_misspecified <- function(spec, fallback) {
-  if (abs(unname(spec$beta[["beta8"]])) > 1e-12) {
-    return(fallback)
-  }
-  calibrated <- rbind(
-    `2` = c(0.41516779, -0.077018686, -0.20322019, -0.099837796),
-    `1` = c(0.42167649, -0.036646768, -0.40508250, -0.158808250),
-    `0.5` = c(0.44634155, 0.042526931, -0.80144240, -0.386970780),
-    `0.25` = c(0.52968742, 0.188863270, -1.53891300, -1.211547000)
-  )
-  proxy_coefficient <- unname(spec$beta[["beta3"]])
-  index <- which(
-    abs(as.numeric(rownames(calibrated)) - proxy_coefficient) < 1e-12
-  )
-  if (length(index) == 1L) unname(calibrated[index, ]) else fallback
-}
 
 #' Fit the paper's proximal parametric bridge estimators
 #'
