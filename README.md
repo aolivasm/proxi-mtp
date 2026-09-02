@@ -7,23 +7,56 @@ doubly robust cross-fitted estimation with Gaussian or Matérn–Sobolev
 reproducing kernel Hilbert space (RKHS) bridge functions, including
 inverse-probability-weighted estimation under two-phase sampling.
 
-## What does the method estimate?
+## Modified treatment policies
 
-An MTP specifies how an individual's exposure would be modified as a
-function of their observed exposure and, optionally, measured covariates.
-For example, `function(a) a + 0.4` represents an increase of 0.4 units
-relative to each individual's exposure, rather than assigning everyone
-the same exposure level.
+A modified treatment policy specifies a rule $q(A,L)$ that defines a
+hypothetical treatment assignment for each individual, depending on the
+observed treatment $A$ and potentially on covariates $L$. The goal of an
+MTP analysis is to estimate the expected outcome in a hypothetical
+scenario where each individual receives the treatment specified by this
+policy instead of their observed treatment.
 
-For a policy $q(A,L)$ and target set $\mathcal S$, the estimand is
+For example, a simple policy could be a shift intervention that
+increases the treatment $A$ by a fixed amount:
 
 $$
-\psi = \mathbb{E}\left[Y\{q(A,L)\}\mid (A,L)\in\mathcal S\right].
+q(a,l) = a + 0.5.
 $$
 
-By default, the target set includes the entire population. The returned
-estimate is a counterfactual **mean**, not automatically a difference
-from the mean under another policy.
+This corresponds to a policy that hypothetically shifts each
+individual's treatment by 0.5 units. For some individuals, the assigned
+treatment under this policy may fall outside the support of the
+observed treatment conditional on their covariates, preventing
+identification of the counterfactual MTP mean for the entire population
+because of a positivity violation. This issue is distinct from the
+presence of unmeasured confounding and can arise even in its absence.
+One strategy to address it is to restrict the target population to
+individuals for whom the counterfactual mean under the policy is
+identifiable. Another strategy is to modify the policy itself so that
+the counterfactual mean can be identified for the entire population.
+Both strategies are described in
+[Olivas-Martinez et al. (2025)](https://arxiv.org/abs/2512.12038).
+
+Let $Y(q)$ denote the counterfactual outcome that would have been
+observed had, instead of the actual treatment $A$, the individual
+received the treatment level $q(A,L)$. Under a user-specified policy,
+the function `pmtp()` estimates the mean of these counterfactual
+outcomes within the population defined by $(A,L)\in\mathcal S$:
+
+$$
+\psi = \mathbb{E}\left[Y(q)\mid (A,L)\in\mathcal S\right].
+$$
+
+For the shift policy above, this is the mean outcome that would be
+observed in the target population if each individual's treatment were
+increased by 0.5 units. If the outcome is binary, the mean is the
+probability of that outcome under the policy. The target population is
+defined using the observed treatment and covariates, before applying
+the policy. By default, it includes the entire population; the `target`
+argument allows the user to restrict it. The estimand is a
+counterfactual mean, not a contrast between two policies.
+
+## Methodological context
 
 The method uses an outcome bridge $h(A,L,W)$ and a treatment bridge
 $g(A,L,Z)$. These are solutions to the observed bridge equations, not
